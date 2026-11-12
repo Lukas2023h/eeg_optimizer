@@ -20,6 +20,19 @@ PROMPT='Arbeite eine Session nach dem Session-Protokoll in CLAUDE.md ab: Skill s
 
 stop() { echo "[autoloop] STOPP: $*" | tee -a "$LOG_DIR/summary.log" >&2; exit 1; }
 open_count() { jq '[.[] | select(.passes|not)] | length' feature_list.json; }
+passed_ids() { jq -r '.[] | select(.passes) | .id' | sort; }
+
+# Final answer text of the LAST call of subagent type $2 in session log $1 ("" if never called)
+last_subagent_result() {
+  grep '^{' "$1" | jq -rs --arg t "$2" '
+    [ .[] | select(.type=="assistant") | .message.content[]?
+          | select(.type=="tool_use" and (.name=="Agent" or .name=="Task") and .input.subagent_type==$t)
+          | .id ] as $ids
+    | [ .[] | select(.type=="user") | .message.content[]?
+          | select(.type=="tool_result" and (.tool_use_id as $x | $ids | index($x) != null))
+          | (.content | if type=="array" then map(.text? // "") | join("") else (. // "") end) ]
+    | last // ""' 2>/dev/null
+}
 
 # Preflight: project allowlist is ignored in untrusted workspaces (headless can't show the dialog)
 trusted="$(jq -r --arg p "$PWD" '.projects[$p].hasTrustDialogAccepted // false' ~/.claude.json 2>/dev/null || echo false)"
@@ -51,6 +64,17 @@ for i in $(seq 1 "$MAX"); do
   [[ "$status" == LOOP_STATUS:\ PASS* ]] || stop "Iteration $i ohne PASS: ${status:-kein Status}"
   [[ "$(git rev-parse HEAD)" != "$head_before" ]] || stop "PASS gemeldet, aber kein neuer Commit"
   [[ "$(open_count)" -lt "$before" ]] || stop "PASS gemeldet, aber kein Feature auf passes=true"
+
+  # Independent proof: exactly the reported feature flipped, backed by the evaluator's last verdict
+  fid="${status##* }"
+  newly="$(comm -13 <(git show "$head_before:feature_list.json" | passed_ids) <(passed_ids < feature_list.json) | paste -sd' ')"
+  [[ "$newly" == "$fid" ]] || stop "passes=true für '$newly', gemeldet wurde '$fid'"
+  eval_out="$(last_subagent_result "$log" evaluator)"
+  [[ -n "$eval_out" ]] || stop "Evaluator wurde für $fid nie aufgerufen"
+  grep -q "VERDICT: PASS" <<<"$eval_out" && grep -q "FEATURE: $fid\b" <<<"$eval_out" \
+    || stop "letztes Evaluator-Urteil ist kein 'VERDICT: PASS' für $fid"
+  [[ -n "$(last_subagent_result "$log" reviewer)" ]] || stop "Reviewer wurde für $fid nie aufgerufen"
+  echo "[autoloop] $i: Evaluator PASS + Reviewer belegt für $fid" | tee -a "$LOG_DIR/summary.log"
   .venv/bin/python scripts/guard.py --base "$head_before" >>"$LOG_DIR/summary.log" 2>&1 \
     || stop "guard verletzt gegenüber Stand vor Iteration $i"
 done

@@ -17,15 +17,9 @@ description: Session-Start für den EEG-Optimizer. Liest den Übergabe-Stand, pr
 - Wenn init.sh wegen fehlender Systembibliotheken scheitert: abbrechen und den Nutzer bitten, die ausgegebene Meldung umzusetzen. Kein sudo.
 
 ## 3. Genau EIN Feature wählen
-Die Auswahl erfolgt deterministisch. Mit folgendem Befehl die Kandidaten ermitteln:
+Die Auswahl erfolgt deterministisch: `scripts/next_feature.sh`.
 
-```bash
-jq -r '[.[] | select(.passes)] | map(.id) as $done
-  | [ .[] | select(.passes|not) | select(all(.depends_on[]; . as $d | $done | index($d))) ]
-  | sort_by(.priority) | .[0:3][] | "\(.priority)\t\(.id)\t\(.title)"' feature_list.json
-```
-
-- Es gewinnt der **erste** Eintrag: niedrigste `priority`, bei Gleichstand die Reihenfolge in der Datei.
+- Es gewinnt die **erste** Zeile: niedrigste `priority`, alle `depends_on` erfüllt, bei Gleichstand die Reihenfolge in der Datei. Nicht davon abweichen.
 - Ausgabe an den Nutzer: `Feature: <id> – <title>` sowie die acceptance-Kriterien als Checkliste.
 - Ist das Feature zu groß für eine Session (Faustregel: mehr als ca. 300 geänderte Zeilen inkl. Tests), wird der `planner`-Subagent beauftragt, es zu zerlegen. Danach das erste Teil-Feature wählen.
 - Gibt es keinen Kandidaten mehr, dies melden und die Session beenden.

@@ -16,6 +16,7 @@ Arbeitsliste: `feature_list.json`. Übergabe: `progress.md`.
 | Lint / Format | `.venv/bin/ruff check .` / `.venv/bin/ruff format .` |
 | Typecheck | `.venv/bin/mypy` (strict, Konfiguration in pyproject) |
 | Harness-Regeln prüfen | `.venv/bin/python scripts/guard.py` |
+| Nächstes Feature | `scripts/next_feature.sh` |
 | App manuell | `.venv/bin/streamlit run app/streamlit_app.py` → http://localhost:8501 |
 | Build | entfällt (Python, Installation per `pip install -e ".[dev]"` aus `init.sh`) |
 

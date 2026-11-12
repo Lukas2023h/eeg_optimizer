@@ -18,6 +18,8 @@
       "Bash(./init.sh stop)",
       "Bash(scripts/check.sh)",
       "Bash(scripts/check.sh *)",
+      "Bash(scripts/next_feature.sh)",
+      "Bash(scripts/next_feature.sh *)",
       "Bash(.venv/bin/pytest)",
       "Bash(.venv/bin/pytest *)",
       "Bash(.venv/bin/ruff *)",

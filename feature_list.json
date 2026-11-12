@@ -1,0 +1,545 @@
+[
+  {
+    "id": "H-01",
+    "title": "Healthcheck-Seite (Harness-Probelauf)",
+    "description": "Eine Seite 'Systemstatus' zeigt Version, Python-Version, verfügbare Solver (CBC) und ob die Ordner data/ und config/ existieren. Dient als Probelauf des Harness und später als Diagnosehilfe.",
+    "priority": 0,
+    "depends_on": [],
+    "acceptance": [
+      "Funktion eeg_optimizer.health.collect_status() liefert ein typisiertes Objekt mit version, python_version, solvers (Liste) und Ordnerstatus; Unit-Test tests/unit/test_health.py prüft, dass 'PULP_CBC_CMD' in solvers enthalten ist",
+      "In der App ist eine Seite 'Systemstatus' über die Navigation erreichbar und zeigt 'CBC verfügbar: ja'",
+      "E2E-Test tests/e2e/test_health.py öffnet die Seite per Playwright und prüft den Text; keine Streamlit-Exception sichtbar",
+      "scripts/check.sh --e2e ist grün"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F1-01",
+    "title": "Einheiten-Modul und Frame-Validierung",
+    "description": "units.py stellt Einheiten-Typen (KWh, KW, Eur, KgCO2 als NewType), Umrechnung kW<->kWh pro Intervall und validate_frame() bereit. Damit sind Leistung und Energie nie vermischbar (INV-4).",
+    "priority": 1,
+    "depends_on": [],
+    "acceptance": [
+      "units.kw_to_kwh(KW(4.0), interval=15 min) == 1.0 und kwh_to_kw invers; Unit-Tests vorhanden",
+      "validate_frame lehnt ab: Spalte ohne erlaubtes Suffix (_kwh, _kw, _eur, _ct_per_kwh, _g_per_kwh, _kg_co2), naive Zeitzone, fehlende Intervalle, NaN, negative _kwh-Werte – je ein Test mit aussagekräftiger Fehlermeldung",
+      "validate_frame akzeptiert einen korrekten 15-min-Frame in Europe/Vienna",
+      "mypy --strict meldet Fehler, wenn KW an eine Funktion mit KWh-Parameter übergeben wird (Test via mypy.api auf ein Snippet oder dokumentiertes reveal-Beispiel in tests/unit/test_units_typing.py)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F1-02",
+    "title": "Internes Zeitraster und Resampling",
+    "description": "timeseries.py erzeugt das 15-min-Jahresraster (Europe/Vienna, DST-korrekt) und bietet energieerhaltendes Resampling: Stundenwerte gleichmäßig auf 4 Intervalle, feinere Daten (1 s/1 min) summiert, Raten (Preise, CO2-Intensität) wiederholt statt geteilt.",
+    "priority": 1,
+    "depends_on": ["F1-01"],
+    "acceptance": [
+      "year_index(2023) hat 35040 Einträge; Tag 2023-03-26 hat 92, Tag 2023-10-29 hat 100 Intervalle (Test)",
+      "hourly_energy_to_15min: Summe vor == Summe nach (Property-Test mit hypothesis, Toleranz 1e-9), jedes Viertel = Stundenwert/4",
+      "aggregate_energy (z. B. 1-s-Leistungsdaten in W -> 15-min kWh) erhält die Energie (Property-Test)",
+      "rate_to_15min wiederholt Raten unverändert (Test mit ct/kWh)",
+      "Ergebnis-Frames bestehen units.validate_frame"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F1-03",
+    "title": "Parquet-Cache für Datenquellen",
+    "description": "Ein Cache unter data/cache/<quelle>/<schlüssel>.parquet verhindert wiederholte Downloads. Tests können einen Cache injizieren, der auf tests/fixtures/ zeigt, damit alles offline läuft.",
+    "priority": 1,
+    "depends_on": ["F1-01"],
+    "acceptance": [
+      "Cache.get_or_fetch(source, key, fetch_fn) ruft fetch_fn nur beim ersten Mal auf (Test mit Zähler, tmp_path)",
+      "Zeitzone und Spaltennamen überstehen den Parquet-Roundtrip (Test)",
+      "Cache-Pfad per Umgebungsvariable EEG_DATA_DIR überschreibbar, Default data/",
+      "git check-ignore data/cache/x.parquet bestätigt, dass Cache-Dateien ignoriert werden"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F1-04",
+    "title": "Synthetische Beispieldaten",
+    "description": "Deterministischer Generator (Seed) für PV-, Last-, Preis- und CO2-Zeitreihen im internen Format. Ermöglicht Offline-Tests, Property-Tests, den Performance-Test und einen Demo-Modus ohne Internet.",
+    "priority": 1,
+    "depends_on": ["F1-02"],
+    "acceptance": [
+      "sources/synthetic.py liefert für 2023 Frames mit pv_kwh, load_kwh, spot_ct_per_kwh, co2_g_per_kwh, die validate_frame bestehen",
+      "Gleicher Seed -> identische Daten (Test); PV nachts 0 und mittags > 0; Jahressumme Last je Haushalt plausibel 2000–6000 kWh (Test)",
+      "Konfiguration kann source: synthetic für PV und Last wählen (wird in F2-01 genutzt; hier Funktion mit Parametern)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F1-05",
+    "title": "PV-Erzeugung aus PVGIS",
+    "description": "PV-Zeitreihe für Standort, kWp, Neigung und Ausrichtung über pvlib.iotools.get_pvgis_hourly laden, auf 2023 abbilden, W -> kWh umrechnen und auf 15 min verteilen. Grundlage der Erzeugungsseite.",
+    "priority": 1,
+    "depends_on": ["F1-02", "F1-03"],
+    "acceptance": [
+      "Offline-Test mit Fixture tests/fixtures/pvgis_*.json (wenige Tage): korrekte kWh-Werte, Zeitzone Europe/Vienna, Energieerhalt gegenüber Stundenwerten",
+      "Parameter kWp, tilt_deg, azimuth_deg (0 = Süd) werden korrekt an PVGIS übergeben (Test mit gemocktem pvlib-Aufruf)",
+      "Network-Test (@pytest.mark.network): Linz, 10 kWp, 30°, Süd -> Jahresertrag 2023 zwischen 9000 und 13000 kWh",
+      "Zweiter Aufruf nutzt den Cache (kein HTTP)",
+      "Zeitstempel-Konvention von PVGIS (UTC, Intervallmitte) ist im Code kommentiert und korrekt behandelt"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F1-06",
+    "title": "Haushaltslast aus HTW-Berlin-Profilen",
+    "description": "Die 74 repräsentativen Lastprofile der HTW Berlin laden (Download + Cache), von 1 s auf 15 min kWh aggregieren und wochentagsgetreu auf 2023 abbilden. Deutsche Profile – Annahme in spec §7.2.",
+    "priority": 1,
+    "depends_on": ["F1-02", "F1-03"],
+    "acceptance": [
+      "Offline-Test mit kleiner Fixture (Ausschnitt weniger Tage, 2 Profile): Aggregation erhält Energie, Ergebnis besteht validate_frame",
+      "Abbildung auf 2023: Montag bleibt Montag (Test für einen Stichtag); DST-Tage 2023 korrekt befüllt",
+      "Profil-Nummer 1..74 wählbar, ungültige Nummer -> klare Fehlermeldung",
+      "Download-URL, Lizenz und Originalzeitzone der Daten in docs/architecture.md oder Modul-Docstring dokumentiert",
+      "Network-Test: Profil 1 Jahresverbrauch im dokumentierten Bereich"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F1-07",
+    "title": "Spotpreise aus aWATTar (AT)",
+    "description": "Stündliche Day-Ahead-Preise Österreich für 2023 über die aWATTar-API laden (in Monats-Chunks), €/MWh -> ct/kWh umrechnen, auf 15 min als Rate wiederholen. Grundlage für das Ziel 'Kosten minimieren'.",
+    "priority": 1,
+    "depends_on": ["F1-02", "F1-03"],
+    "acceptance": [
+      "Offline-Test mit Fixture-JSON: Umrechnung 100 €/MWh -> 10 ct/kWh, Spalte spot_ct_per_kwh, Zeitzone korrekt",
+      "Negative Preise bleiben erhalten (Test)",
+      "Lücken in der API-Antwort führen zu klarer Fehlermeldung, nicht zu stillem Auffüllen",
+      "HTTP mit Timeout; Network-Test lädt Januar 2023"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F1-08",
+    "title": "CO2-Intensität Österreich aus Energy-Charts",
+    "description": "Stündliche CO2-Intensität der österreichischen Erzeugung (ohne Importe) für 2023 aus der Energy-Charts-API. Falls kein direkter Endpunkt für AT existiert: aus dem Erzeugungsmix mal dokumentierten Emissionsfaktoren berechnen.",
+    "priority": 1,
+    "depends_on": ["F1-02", "F1-03"],
+    "acceptance": [
+      "Offline-Test mit Fixture: Spalte co2_g_per_kwh, Werte im Bereich 0–600, Zeitzone korrekt",
+      "Gewählte Methode (Endpunkt bzw. Emissionsfaktoren mit Quelle) in spec §7.2 bzw. docs/ dokumentiert",
+      "Network-Test: Jahresmittel 2023 zwischen 50 und 250 g/kWh"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F1-09",
+    "title": "Haushaltslast aus Open Power System Data (optional)",
+    "description": "Ergänzende Lastquelle: OPSD Household Data (15-min-CSV). Liefert Profile mit Einzelgeräten für spätere Plausibilisierung.",
+    "priority": 6,
+    "depends_on": ["F1-02", "F1-03"],
+    "acceptance": [
+      "Offline-Test mit Fixture-CSV: kumulative Zählerstände werden korrekt in kWh pro Intervall differenziert, Ergebnis besteht validate_frame",
+      "Auswahl eines Haushalts per ID; unbekannte ID -> klare Fehlermeldung"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F2-01",
+    "title": "Konfigurationsmodell und YAML-Loader",
+    "description": "Typisierte dataclasses für Gemeinschaft, PV, Haushalte, Tarife, Optimierung; Laden aus YAML mit Defaults aus config/defaults.yaml und Validierung an einer Stelle mit deutschen Fehlermeldungen.",
+    "priority": 2,
+    "depends_on": ["F1-01"],
+    "acceptance": [
+      "load_config(path) liefert CommunityConfig; Werte aus defaults.yaml werden übernommen, wenn nicht überschrieben (Test)",
+      "Ungültige Werte (kWp < 0, unbekannte Quelle, doppelte Haushalts-ID, eeg_type nicht local/regional, Haushaltsanzahl > 15) -> ConfigError mit deutscher Meldung, je ein Test",
+      "Roundtrip: save_config(load_config(x)) ist inhaltsgleich (Test)",
+      "grid_fee_reduction ergibt sich aus eeg_type (local 0.57, regional 0.28), wenn nicht explizit gesetzt"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F2-02",
+    "title": "Defaults und Beispielgemeinschaft",
+    "description": "config/defaults.yaml mit allen Annahmen aus spec §7.1 und config/example_community.yaml (5 Haushalte, Linz, 2023, 30 kWp) als Standardszenario. Ein Offline-Fallback mit synthetischen Daten ist als zweite Datei vorhanden.",
+    "priority": 2,
+    "depends_on": ["F2-01", "F1-04"],
+    "acceptance": [
+      "Beide Dateien laden ohne Fehler (Test); alle Tarif-Defaults stimmen mit spec §7.1 überein (Test vergleicht Zahlen)",
+      "config/example_community_offline.yaml nutzt source: synthetic und lädt ohne Netzwerk",
+      "Kommentare in den YAML-Dateien erklären jeden Parameter auf Deutsch inkl. Einheit"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F2-03",
+    "title": "Gemeinschafts-Zeitreihen aus Konfiguration bauen",
+    "description": "community.py lädt anhand der Konfiguration alle Quellen (PV, Lasten je Haushalt, Preis, CO2) und liefert ein konsistentes Eingabe-Bündel für Bilanz und Optimierung.",
+    "priority": 2,
+    "depends_on": ["F2-01", "F1-04"],
+    "acceptance": [
+      "build_inputs(config) mit Offline-Konfiguration liefert PV-Frame, Last-Frame pro Haushalt, Preis- und CO2-Frame mit identischem Index (Test)",
+      "Quellen-Dispatch ist erweiterbar (Registry/Mapping), unbekannte Quelle -> klare Fehlermeldung",
+      "Alle Frames bestehen validate_frame"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F2-04",
+    "title": "UI: Konfigurationsseite",
+    "description": "Seite 'Konfiguration': YAML laden/auswählen, Haushaltsanzahl, Profilzuordnung, PV-Größe/Neigung/Ausrichtung, EEG-Typ und Tarife bearbeiten und speichern. Fehler werden verständlich angezeigt.",
+    "priority": 2,
+    "depends_on": ["F2-02", "F2-03"],
+    "acceptance": [
+      "E2E: Seite öffnen, kWp auf 20 ändern, speichern -> Datei unter data/configs/ enthält kwp: 20",
+      "E2E: ungültigen Wert (kWp negativ) eingeben -> deutsche Fehlermeldung sichtbar, keine Streamlit-Exception",
+      "Die gewählte Konfiguration ist für die anderen Seiten im Session State verfügbar"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F3-01",
+    "title": "Energiebilanz der Gemeinschaft",
+    "description": "balance.py berechnet pro Intervall shared, export und grid_import aus PV und Gesamtlast. Grundlage aller Kennzahlen; Energiebilanz muss exakt stimmen (INV-1).",
+    "priority": 3,
+    "depends_on": ["F1-01"],
+    "acceptance": [
+      "community_balance liefert pv_kwh, load_kwh, shared_kwh, export_kwh, grid_import_kwh",
+      "Property-Test (hypothesis, tests/property/test_balance.py): pv = shared + export und load = shared + grid_import pro Intervall, Toleranz 1e-6; alle Werte >= 0",
+      "Randfälle getestet: PV = 0, Last = 0, PV == Last"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F3-02",
+    "title": "Baseline-Kennzahlen",
+    "description": "KPIs der Ist-Situation: Eigenverbrauchsquote (shared/pv), Autarkiegrad (shared/load), Einspeisung, Netzbezug, gesamt und je Monat.",
+    "priority": 3,
+    "depends_on": ["F3-01"],
+    "acceptance": [
+      "kpis() liefert typisiertes Ergebnis mit self_consumption_ratio, autarky_ratio, export_kwh, grid_import_kwh, shared_kwh (Test mit handberechnetem Mini-Beispiel)",
+      "Division durch 0 (PV = 0 bzw. Last = 0) liefert definierte Werte (0.0) statt NaN, getestet",
+      "monthly_kpis() liefert 12 Zeilen für 2023"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F3-03",
+    "title": "Verteilschlüssel dynamisch anteilig",
+    "description": "allocation.py verteilt shared und grid_import auf Haushalte, dynamisch anteilig zum Verbrauch im Intervall. Als Strategy austauschbar (statisch später).",
+    "priority": 3,
+    "depends_on": ["F3-01"],
+    "acceptance": [
+      "AllocationStrategy-Protocol + DynamicProportional; Auswahl per Konfiguration allocation.strategy",
+      "Property-Test INV-7: Summe der Haushaltsanteile == Gemeinschaftswert pro Intervall (Toleranz 1e-6); kein Haushalt erhält mehr shared als seine Last",
+      "Intervall mit Gesamtlast 0 -> Anteile 0, kein NaN (Test)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F3-04",
+    "title": "Kostenmodell (€)",
+    "description": "economics.py berechnet Kosten in Gemeinschafts- und Haushaltssicht nach spec §7.1, inklusive Wert einer gemeinsam genutzten kWh. Basis für 'gesparte €'.",
+    "priority": 3,
+    "depends_on": ["F3-01", "F2-01"],
+    "acceptance": [
+      "Eigener Unit-Test: value_shared_ct_per_kwh(defaults, local) == 9.42 und (regional) == 7.68",
+      "Gemeinschaftskosten = import × Vollpreis + shared × (ermäßigtes Netzentgelt + Abgaben) − export × Einspeisetarif (Test mit Mini-Beispiel)",
+      "Test: Verschiebt man 1 kWh von export zu shared (bei gleichem PV), sinken die Gemeinschaftskosten genau um value_shared",
+      "Haushaltskosten (Verbrauchersicht) je Haushalt; Spot-Tarif-Variante (spot + markup statt energy_price) getestet",
+      "Ergebnisse in _eur-Spalten bzw. Eur-Typ"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F3-05",
+    "title": "CO2-Bilanz",
+    "description": "Emissionen des Netzbezugs aus stündlicher Intensität; PV mit 0 g/kWh. Basis für 'vermiedene kg CO2'.",
+    "priority": 3,
+    "depends_on": ["F3-01"],
+    "acceptance": [
+      "emissions() = Σ grid_import_kwh × co2_g_per_kwh / 1000 in kg (Test mit Mini-Beispiel)",
+      "Ergebnis gesamt und je Haushalt (über Verteilschlüssel), Spalten _kg_co2"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F3-06",
+    "title": "UI: Ist-Analyse",
+    "description": "Seite 'Ist-Analyse' zeigt Baseline-KPIs, mittleres Tagesprofil (PV vs. Last), Monatsbalken und Überschuss-Heatmap (Stunde × Tag) für Laien verständlich.",
+    "priority": 3,
+    "depends_on": ["F3-02", "F3-03", "F3-04", "F3-05", "F2-04"],
+    "acceptance": [
+      "E2E mit Offline-Beispielkonfiguration: KPI-Kacheln Eigenverbrauchsquote, Autarkiegrad, Einspeisung, Netzbezug sichtbar mit Einheiten (%, kWh)",
+      "E2E: drei Diagramme (Tagesprofil, Monate, Heatmap) werden gerendert (Plotly-Elemente vorhanden), keine Exception",
+      "Hinweistexte zu Annahmen (deutsche HTW-Profile, CO2 ohne Importe) sichtbar bzw. verlinkt",
+      "Seitenaufbau für 5 Haushalte × 1 Jahr < 10 s (gecacht)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F4-01",
+    "title": "Gerätemodell flexibler Lasten",
+    "description": "devices.py beschreibt flexible Lasten (modulating, program) mit Leistung, Tagesenergie bzw. Dauer, Zeitfenster (auch über Mitternacht), Baseline-Start, optional Mindestlaufzeit und Mindestleistung.",
+    "priority": 4,
+    "depends_on": ["F1-01", "F2-01"],
+    "acceptance": [
+      "Dataclasses ModulatingDevice und ProgramDevice; Laden aus YAML-Abschnitt devices (Test)",
+      "Validierung: Energie im Fenster mit power_kw nicht erreichbar -> ConfigError; min_power_kw > power_kw -> Fehler; baseline_start außerhalb des Fensters -> Fehler (je ein Test)",
+      "Fenster 18:00–07:00 wird korrekt als über Mitternacht erkannt (Test)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F4-02",
+    "title": "Baseline-Fahrplan flexibler Lasten",
+    "description": "Jedes Gerät läuft in der Baseline ab seiner konfigurierten Startzeit mit voller Leistung, bis der Tagesbedarf gedeckt ist (program: feste Dauer). Beschreibt den heutigen, unoptimierten Betrieb.",
+    "priority": 4,
+    "depends_on": ["F4-01", "F1-02"],
+    "acceptance": [
+      "baseline_schedule liefert device_kwh-Serie; Tagessumme == energy_kwh_per_day (Property-Test über zufällige Geräte)",
+      "Kein Intervall über power_kw × Intervalldauer; Last nur im Fenster (Property-Test)",
+      "DST-Tage korrekt (Test für 2023-03-26 und 2023-10-29)",
+      "Flexible Lasten werden zur Haushaltslast addiert und fließen in die Baseline-Bilanz ein (Test)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F4-03",
+    "title": "Geräte in der Beispielgemeinschaft",
+    "description": "example_community.yaml (und Offline-Variante) erhalten realistische Geräte: E-Auto, Boiler, Wärmepumpe (enges Fenster 10–16 Uhr), Waschmaschine, Geschirrspüler – verteilt auf die Haushalte.",
+    "priority": 4,
+    "depends_on": ["F4-01", "F2-02"],
+    "acceptance": [
+      "Beide Beispielkonfigurationen laden mit Geräten fehlerfrei (Test)",
+      "Wärmepumpe: kind modulating, Fenster 10:00–16:00, Kommentar verweist auf Vereinfachung (spec §7.2)",
+      "Mindestens ein Gerät je Art; min_power_kw standardmäßig nicht gesetzt"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F4-04",
+    "title": "UI: Geräte je Haushalt bearbeiten",
+    "description": "Auf der Konfigurationsseite können pro Haushalt Geräte hinzugefügt, bearbeitet und entfernt werden (Leistung, Energie, Fenster, Baseline-Start).",
+    "priority": 4,
+    "depends_on": ["F4-03", "F2-04"],
+    "acceptance": [
+      "E2E: Waschmaschine zu Haushalt 1 hinzufügen, speichern, neu laden -> Gerät vorhanden",
+      "E2E: unerfüllbare Energie im Fenster -> deutsche Fehlermeldung, keine Exception"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F5-01",
+    "title": "Zielfunktionen und Bewertung",
+    "description": "objectives.py bewertet einen beliebigen Fahrplan nach max_shared, min_cost oder min_co2. Dieselbe Funktion bewertet Baseline und Optimierung, damit INV-3 objektiv prüfbar ist.",
+    "priority": 5,
+    "depends_on": ["F3-04", "F3-05", "F4-02"],
+    "acceptance": [
+      "evaluate(schedule, inputs, objective) liefert einen Skalar; Vorzeichenkonvention dokumentiert (höher = besser)",
+      "Test mit Mini-Beispiel für alle drei Ziele, Werte handberechnet"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F5-02",
+    "title": "MILP für einen Block: modulierende Lasten (LP)",
+    "description": "PuLP-Modell für einen Zeitblock mit modulierenden Geräten (stetige Leistung) und Ziel max_shared. Reines LP, solange keine Mindestlaufzeit/-leistung gesetzt ist.",
+    "priority": 5,
+    "depends_on": ["F5-01"],
+    "acceptance": [
+      "solve_block liefert Fahrplan je Gerät; Tagesenergie exakt, Fenster und Leistung eingehalten (Property-Test INV-2, hypothesis, kleine Instanzen)",
+      "Ergebnis nie schlechter als Baseline bzgl. evaluate (Property-Test INV-3)",
+      "Handbeispiel: 1 Gerät, PV-Überschuss nur 12–13 Uhr -> Last landet dort",
+      "Modell enthält keine Binärvariablen, wenn keine min_run_min/min_power_kw gesetzt (Test)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F5-03",
+    "title": "MILP: Programm-Geräte (Startzeit-Binärvariablen)",
+    "description": "Waschmaschine/Geschirrspüler mit fester Leistung und Dauer am Stück; das Modell wählt genau einen Start im Fenster.",
+    "priority": 5,
+    "depends_on": ["F5-02"],
+    "acceptance": [
+      "Genau ein Start, Programm läuft komplett im Fenster, Profil am Stück (Property-Test INV-2)",
+      "Handbeispiel: Programm 90 min wird in den Überschuss gelegt",
+      "INV-3 Property-Test mit gemischten Geräten"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F5-04",
+    "title": "MILP: Mindestlaufzeit und Mindestleistung",
+    "description": "Optionale Nebenbedingungen min_run_min (zusammenhängender Betrieb) und min_power_kw (z. B. Wallbox 1,4/4,1 kW) für modulierende Geräte; aktivieren Binärvariablen.",
+    "priority": 5,
+    "depends_on": ["F5-02"],
+    "acceptance": [
+      "Mit min_power_kw: jedes Intervall mit Betrieb hat Leistung >= min_power_kw (Property-Test)",
+      "Mit min_run_min: jeder Betriebsblock ist mindestens so lang (Property-Test)",
+      "Ohne beide Parameter bleibt das Modell ein LP (Test aus F5-02 weiter grün)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F5-05",
+    "title": "MILP: Ziele Kosten und CO2",
+    "description": "Ziele min_cost (Spotpreis + Aufschlag + Netzentgelte/Abgaben, Einspeisevergütung) und min_co2 (Netzbezug × Intensität) im Modell.",
+    "priority": 5,
+    "depends_on": ["F5-02", "F1-07", "F1-08"],
+    "acceptance": [
+      "Handbeispiel min_cost: ohne PV landet die Last im billigsten Intervall",
+      "Handbeispiel min_co2: ohne PV landet die Last im CO2-ärmsten Intervall",
+      "INV-3 Property-Test für beide Ziele"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F5-06",
+    "title": "Greedy-Heuristik",
+    "description": "Einfache Heuristik als Vergleich und Fallback: Aufgaben nach Flexibilität sortiert, Energie in die nach Ziel besten Intervalle legen.",
+    "priority": 5,
+    "depends_on": ["F5-01", "F4-02"],
+    "acceptance": [
+      "Greedy-Ergebnis erfüllt INV-2 (Property-Test, alle Gerätearten)",
+      "Greedy ist nie besser als MILP auf kleinen Instanzen (Property-Test, Toleranz 1e-6) – Plausibilitätscheck beider Verfahren",
+      "Laufzeit 15 Haushalte × 1 Tag < 0,5 s"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F5-07",
+    "title": "Runner: Tageszerlegung, Rückfall und Ausweis",
+    "description": "optimize() zerlegt das Jahr in Tagesblöcke (Horizont <= 48 h, Fenster über Mitternacht), fixiert frühere Blöcke, prüft jedes Blockergebnis gegen die Baseline und fällt nachvollziehbar auf Greedy/Baseline zurück. Rückfälle werden gezählt und ausgewiesen.",
+    "priority": 5,
+    "depends_on": ["F5-03", "F5-04", "F5-05", "F5-06"],
+    "acceptance": [
+      "Schedule enthält fallback_blocks (Datum, Grund) und fallback_ratio; Test erzwingt Solver-Fehler (Mock) -> Rückfall wird gezählt, nicht verschluckt",
+      "Gesamtergebnis INV-2 und INV-3 über ein synthetisches Jahr mit 3 Haushalten (Test)",
+      "Gerät mit Fenster 18:00–07:00 wird korrekt über die Blockgrenze geplant (Test)",
+      "solver: greedy in der Konfiguration nutzt nur die Heuristik"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F5-08",
+    "title": "Performance: 15 Haushalte × 1 Jahr < 60 s",
+    "description": "INV-5 als automatisierter Test mit synthetischen Daten (15 Haushalte, je 3–5 Geräte, 2023, Ziel max_shared, MILP).",
+    "priority": 5,
+    "depends_on": ["F5-07"],
+    "acceptance": [
+      "tests/perf/test_performance.py (@pytest.mark.slow) läuft in < 60 s Wandzeit, gemessen und im Assert",
+      "fallback_ratio == 0 im Performance-Szenario",
+      "Gemessene Laufzeit in progress.md notiert"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F5-09",
+    "title": "Standardszenario ohne Rückfall",
+    "description": "Für die Beispielgemeinschaft 2023 (alle drei Ziele) muss die Rückfallquote 0 sein; sonst sind Solver-Probleme versteckt.",
+    "priority": 5,
+    "depends_on": ["F5-07", "F4-03"],
+    "acceptance": [
+      "Test mit config/example_community_offline.yaml: fallback_ratio == 0 für max_shared, min_cost, min_co2",
+      "Network-Test mit config/example_community.yaml: fallback_ratio == 0 für max_shared"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F5-10",
+    "title": "UI: Optimierung starten",
+    "description": "Seite 'Optimierung': Ziel und Verfahren wählen, starten, Fortschritt und Laufzeit sehen. Hinweise 'Obergrenze bei perfekter Voraussicht' und 'pro Tagesblock optimal, nicht global' sowie Anzahl Rückfall-Blöcke direkt beim Ergebnis.",
+    "priority": 5,
+    "depends_on": ["F5-07", "F3-06"],
+    "acceptance": [
+      "E2E (Offline-Konfiguration): Ziel 'Gemeinsam genutzte Energie maximieren' wählen, 'Optimieren' klicken -> Ergebnis mit Laufzeit und 'Rückfall-Blöcke: 0' sichtbar",
+      "E2E: beide Hinweistexte sichtbar neben dem Ergebnis",
+      "E2E: alle drei Ziele und beide Verfahren auswählbar, jeweils ohne Exception"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F6-01",
+    "title": "Vergleich Baseline vs. optimiert",
+    "description": "compare.py liefert zusätzlich gemeinsam genutzte kWh, gesparte € (Gemeinschafts- und Haushaltssicht) und vermiedene kg CO2, pro Haushalt und gesamt.",
+    "priority": 6,
+    "depends_on": ["F5-07", "F3-03", "F3-04", "F3-05"],
+    "acceptance": [
+      "Comparison mit Gesamt- und Haushaltszeilen; Summe der Haushalte == Gesamt (Test, Toleranz 1e-6)",
+      "Bei fixem Tarif: gesparte € Gemeinschaft == Δ shared_kWh × value_shared (Test)",
+      "Identische Fahrpläne -> alle Deltas 0 (Test)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F6-02",
+    "title": "UI: Vergleichsseite",
+    "description": "Seite 'Vergleich' zeigt die Wirkung für Laien: Kennzahlen gesamt, Tabelle je Haushalt, Tagesprofil vorher/nachher.",
+    "priority": 6,
+    "depends_on": ["F6-01", "F5-10"],
+    "acceptance": [
+      "E2E: nach Optimierung zeigt die Seite '+X kWh gemeinsam genutzt', '€ gespart', 'kg CO2 vermieden' mit Zahlen",
+      "E2E: Tabelle mit einer Zeile je Haushalt plus Summe",
+      "E2E: Diagramm vorher/nachher für einen wählbaren Tag; Hinweis auf Obergrenze sichtbar"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F7-01",
+    "title": "CSV-Export",
+    "description": "Export der Zeitreihen (Baseline und optimiert) und der Kennzahlen als CSV zur eigenen Auswertung.",
+    "priority": 7,
+    "depends_on": ["F6-01"],
+    "acceptance": [
+      "export_csv erzeugt Dateien mit Einheiten im Spaltennamen und ISO-Zeitstempeln inkl. Offset; pandas.read_csv liest sie zurück, Werte identisch (Roundtrip-Test)",
+      "E2E: Download-Button auf Seite 'Export' liefert eine CSV-Datei (Playwright download)"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F7-02",
+    "title": "Annahmen-Seite und Hinweise",
+    "description": "Eigene Seite 'Annahmen' gibt spec §7 verständlich wieder (Tarife, CO2 ohne Importe, deutsche Lastprofile, PVGIS-Verteilung, Wärmepumpen-Vereinfachung, perfekte Voraussicht); Ergebnisseiten verlinken dorthin.",
+    "priority": 7,
+    "depends_on": ["F3-06"],
+    "acceptance": [
+      "E2E: Seite 'Annahmen' zeigt die aktuell geladenen Tarifwerte aus der Konfiguration (nicht hart kodiert)",
+      "E2E: Ist-Analyse, Optimierung und Vergleich enthalten einen Link zur Annahmen-Seite"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F7-03",
+    "title": "End-to-End-Durchlauf für Laien",
+    "description": "Ein vollständiger Nutzerfluss (Konfiguration -> Ist-Analyse -> Optimierung -> Vergleich -> Export) funktioniert ohne Vorwissen; Navigation und Texte sind konsistent deutsch.",
+    "priority": 7,
+    "depends_on": ["F6-02", "F7-01", "F7-02", "F4-04"],
+    "acceptance": [
+      "E2E-Test tests/e2e/test_full_flow.py durchläuft alle Seiten mit der Offline-Konfiguration ohne Exception",
+      "Keine englischen UI-Texte auf den Hauptseiten (Test prüft eine Liste typischer Begriffe wie 'Error', 'Submit', 'Loading')"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F8-01",
+    "title": "Smart-Meter-CSV-Import (Netz OÖ)",
+    "description": "Parser für 15-min-Verbrauchsexporte aus dem Netzbetreiber-Portal (Netz OÖ) ins interne Format. Echte Daten verlassen nie data/ und kommen nie ins Repo.",
+    "priority": 8,
+    "depends_on": ["F1-02", "F2-03"],
+    "acceptance": [
+      "Annahmen zum CSV-Format (Trennzeichen, Dezimalkomma, Zeitstempel-Konvention, Einheit) in docs/ dokumentiert; anonymisierte, synthetische Fixture in tests/fixtures/",
+      "Parser-Test: DST-Tage, Dezimalkomma, fehlende Werte -> klare Fehlermeldung statt stillem Auffüllen",
+      "Konfiguration load: {source: smartmeter, path: ...} funktioniert in build_inputs (Test)",
+      "Offene Frage an den Nutzer in progress.md: echte (anonymisierte) Beispieldatei zur Verifikation"
+    ],
+    "passes": false
+  },
+  {
+    "id": "F8-02",
+    "title": "UI: Smart-Meter-Datei hochladen",
+    "description": "Auf der Konfigurationsseite kann einem Haushalt eine Smart-Meter-CSV zugeordnet werden; die Datei wird lokal unter data/raw/ abgelegt.",
+    "priority": 8,
+    "depends_on": ["F8-01", "F2-04"],
+    "acceptance": [
+      "E2E: Fixture-CSV hochladen, Haushalt 1 zuordnen -> Ist-Analyse rechnet mit diesen Daten",
+      "Hochgeladene Datei liegt unter data/raw/ und ist per git check-ignore ignoriert",
+      "Fehlerhafte Datei -> deutsche Fehlermeldung, keine Exception"
+    ],
+    "passes": false
+  }
+]

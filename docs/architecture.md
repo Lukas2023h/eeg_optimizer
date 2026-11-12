@@ -7,7 +7,7 @@
 | Sprache | Python 3.12, `venv` in `.venv/`, `pyproject.toml`, `requirements.lock` | Ökosystem für Energie-Daten (pvlib, pandas). Der Lockfile sorgt für dieselbe Umgebung in jeder Session. |
 | Daten | pandas, numpy | Zeitreihen mit Zeitzonen und Resampling |
 | PV | pvlib (`iotools.get_pvgis_hourly`) | Offizieller PVGIS-Client, kein eigener HTTP-Code nötig |
-| Optimierung | PuLP + CBC | Frei, ohne Lizenz, MILP-fähig, CBC wird mitgeliefert |
+| Optimierung | PuLP **2.9.x** (`<3`) + CBC | Frei, ohne Lizenz, MILP-fähig. CBC wird mitgeliefert (`PULP_CBC_CMD`). PuLP 3/4 ändern die API grundlegend (kein `LpStatus`, Variablen nur über `problem.add_variable`) und liefern CBC nur noch als Extra. Gepinnt, damit Code und Doku zusammenpassen. |
 | HTTP | requests | aWATTar, Energy-Charts, HTW-Download |
 | Konfiguration | PyYAML → typisierte `dataclass`es | Menschenlesbar. Die Validierung erfolgt an einer Stelle beim Laden. |
 | Cache | Parquet (`pyarrow`) | Schnell, typerhaltend, ohne Datenbank |

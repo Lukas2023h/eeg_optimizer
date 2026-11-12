@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Edit(/src/**)",
+      "Edit(/app/**)",
+      "Edit(/tests/**)",
+      "Edit(/docs/**)",
+      "Edit(/config/**)",
+      "Edit(/scripts/**)",
+      "Edit(/feature_list.json)",
+      "Edit(/progress.md)",
+      "Edit(/CLAUDE.md)",
+      "Edit(/pyproject.toml)",
+      "Edit(/requirements.lock)",
+      "Edit(/.claude/skills/**)",
+      "Bash(./init.sh)",
+      "Bash(./init.sh stop)",
+      "Bash(scripts/check.sh)",
+      "Bash(scripts/check.sh *)",
+      "Bash(.venv/bin/pytest)",
+      "Bash(.venv/bin/pytest *)",
+      "Bash(.venv/bin/ruff *)",
+      "Bash(.venv/bin/mypy)",
+      "Bash(.venv/bin/mypy *)",
+      "Bash(.venv/bin/python scripts/guard.py)",
+      "Bash(.venv/bin/python scripts/guard.py *)",
+      "Bash(.venv/bin/python -m eeg_optimizer *)",
+      "Bash(.venv/bin/python -c *)",
+      "Bash(.venv/bin/python -)",
+      "Bash(.venv/bin/pip install -e *)",
+      "Bash(.venv/bin/pip install -r requirements.lock)",
+      "Bash(.venv/bin/pip freeze *)",
+      "Bash(.venv/bin/pip show *)",
+      "Bash(.venv/bin/pip list*)",
+      "Bash(.venv/bin/playwright install chromium)",
+      "Bash(curl -fsS http://localhost:8501/*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git branch)",
+      "Bash(git branch --show-current)",
+      "Bash(git rev-parse *)",
+      "Bash(git ls-files*)",
+      "Bash(git stash list)",
+      "Bash(ls*)",
+      "Bash(tail -n * logs/*)",
+      "Bash(wc *)",
+      "Bash(mkdir -p *)",
+      "Bash(date*)",
+      "Bash(jq *)"
+    ],
+    "ask": [
+      "Bash(rm *)",
+      "Bash(git checkout *)",
+      "Bash(git restore *)",
+      "Bash(git switch *)",
+      "Bash(git rebase *)",
+      "Bash(git merge *)",
+      "Bash(git stash *)",
+      "Bash(git commit --amend*)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/pip uninstall *)",
+      "Bash(pip *)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/agents/**)",
+      "Edit(/.claude/hooks/**)",
+      "Edit(/init.sh)",
+      "Edit(/.gitignore)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -fr *)",
+      "Bash(rm -r *)",
+      "Bash(sudo *)",
+      "Bash(git push*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean*)",
+      "Bash(git filter-branch*)",
+      "Bash(git update-ref*)",
+      "Bash(git config *)",
+      "Bash(chmod -R *)",
+      "Bash(curl * | *sh*)",
+      "Bash(wget * | *sh*)",
+      "Bash(dd *)",
+      "Bash(mkfs*)",
+      "Read(/.env)",
+      "Read(/.env.*)",
+      "Edit(/.env)",
+      "Edit(/data/**)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_edit_lint.sh", "timeout": 60 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop_gate.sh", "timeout": 600 }
+        ]
+      }
+    ]
+  }
+}

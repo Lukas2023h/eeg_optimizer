@@ -33,7 +33,7 @@ Arbeitsliste: `feature_list.json`. Übergabe: `progress.md`.
 - Fehler nie verschlucken: kein `except: pass`, kein stiller Default. Ein Rückfall wird gezählt und angezeigt.
 - PuLP ist auf 2.9.x gepinnt, also gilt die klassische API (`LpProblem`, `LpVariable`, `PULP_CBC_CMD`).
 - UI-Elemente bekommen stabile Labels bzw. `key`s, damit Playwright sie findet.
-- Shell-Befehle einzeln aufrufen, nicht mit `&&` verketten. Dateien mit dem Read-Tool lesen statt mit `head`/`cat`. Headless gilt nur die Allowlist, und ein verketteter Befehl wird abgelehnt, sobald ein Teil davon nicht erlaubt ist.
+- **Shell (Allowlist-tauglich):** ein Befehl pro Aufruf, relativ zum Projektroot. Kein `cd`, keine absoluten Pfade, kein `&&`/`;`/`| tail`/`2>&1`. Commit-Messages ohne `<`, `>` und `|`. Dateien mit dem Read-Tool lesen. Headless gilt nur die Allowlist, alles andere wird abgelehnt.
 
 ## Session-Protokoll (immer so)
 1. **Orientieren:** `progress.md` + `git log --oneline -20` + `feature_list.json` lesen (Skill `start-session`).

@@ -87,6 +87,10 @@ Alle Werte sind als YAML-Parameter überschreibbar (`config/defaults.yaml`). Die
 - Preis einer gemeinschaftsintern bezogenen kWh für Mitglieder: `eeg_internal_price + grid_fee_energy × (1 − grid_fee_reduction) + levies_taxes`.
 - Weitere mögliche Befreiungen (z. B. Erneuerbaren-Förderbeitrag, Elektrizitätsabgabe) werden **nicht** modelliert.
 - **Gemeinschaftssicht:** Die gemeinsame PV-Anlage gehört der Gemeinschaft, interne Zahlungen heben sich auf. Kosten = Netzbezug × voller Preis + shared × (ermäßigtes Netzentgelt + Abgaben) − Einspeisung × Einspeisevergütung.
+- **Wert einer gemeinsam genutzten kWh (Gemeinschaftssicht)**, eigener Unit-Test:
+  `value_shared = energy_price + grid_fee_energy × grid_fee_reduction − feed_in_tariff`.
+  Default lokal: 13 + 6 × 0.57 − 7 = **9.42 ct/kWh** (regional: 13 + 6 × 0.28 − 7 = 7.68 ct/kWh). Ermäßigtes Netzentgelt und Abgaben fallen weiterhin an. Die kWh ist also *nicht* 25 ct wert.
+  Gesparte € (Gemeinschaft, fixer Tarif) = Δ shared_kWh × value_shared. Das folgt direkt aus der Kostenformel oben, weil jede zusätzlich geteilte kWh eine kWh Netzbezug und eine kWh Einspeisung ersetzt.
 - **Haushaltssicht:** Kosten des Haushalts als Verbraucher (Netzbezug × voller Preis + shared-Anteil × interner Preis inkl. Netzentgelt und Abgaben).
 - **Ziel „Kosten minimieren“:** Der Energiepreis des Netzbezugs ist stündlich `spot + spot_markup` (dynamischer Tarif). Die €-Kennzahlen dieses Laufs verwenden dasselbe Preismodell.
 
@@ -99,3 +103,7 @@ Alle Werte sind als YAML-Parameter überschreibbar (`config/defaults.yaml`). Die
 - **Verteilschlüssel** (gemeinsam genutzte Energie → Haushalte): dynamisch, anteilig zum Verbrauch im Intervall. Er ist austauschbar, statisch kommt eventuell später.
 - **Flexible Lasten** kommen **zusätzlich** zum Lastprofil dazu. Ihr Baseline-Fahrplan ergibt sich aus einer pro Gerät konfigurierbaren Startzeit, z. B. E-Auto 18:00, Boiler 22:00, Waschmaschine 19:00.
 - **Perfekte Voraussicht:** Die Optimierung kennt PV, Last, Preise und CO₂ im Voraus.
+- **Wärmepumpe** wird als `modulating` mit festem Tagesbedarf modelliert. Das ist eine Vereinfachung: keine Gebäudeträgheit, keine Komfortgrenzen. Das Default-Zeitfenster ist deshalb eng, 10:00–16:00.
+- **Mindestleistung im Betrieb** (z. B. Wallbox ca. 1,4 kW einphasig, ca. 4,1 kW dreiphasig) ist optional und standardmäßig aus.
+- **Tageszerlegung:** Optimiert wird blockweise, pro Tag mit Horizont ≤ 48 h. Das Ergebnis ist pro Block optimal, nicht global über das Jahr. Die UI weist neben dem Ergebnis darauf hin.
+- **Rückfall:** Liefert der Solver für einen Block kein gültiges oder ein schlechteres Ergebnis, kommt Greedy bzw. die Baseline zum Einsatz. Die Anzahl der Blöcke mit Rückfall wird im Ergebnis und in der UI ausgewiesen. Im Standardszenario (Beispielgemeinschaft, 2023) **muss die Rückfallquote 0 sein**. Das ist durch einen Test abgesichert, und der Evaluator wertet einen Verstoß als FAIL.

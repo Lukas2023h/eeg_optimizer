@@ -14,7 +14,7 @@
 | UI | Streamlit + Plotly | Schnelles Dashboard ohne Frontend-Build. Interaktive Diagramme. |
 | Qualität | ruff, mypy `--strict`, pytest + hypothesis, Playwright (Python) | Lint/Format, Typsicherheit, Property-Tests für Invarianten, E2E wie ein echter Nutzer |
 
-`pyarrow` (Parquet) und `pandas-stubs` (für mypy) sind als zusätzliche Abhängigkeiten nötig.
+Zusätzliche Abhängigkeiten: `pyarrow` (Parquet), `pandas-stubs`, `types-PyYAML`, `types-requests` (für mypy `--strict`).
 
 ## 2. Ordnerstruktur
 
@@ -94,7 +94,7 @@ households:
 ```
 
 Gerätearten:
-- **`modulating`** (E-Auto, Boiler, Wärmepumpe): Leistung stufenlos 0…`power_kw`, optional `min_run_min` (zusammenhängende Laufzeit).
+- **`modulating`** (E-Auto, Boiler, Wärmepumpe): Leistung stufenlos 0…`power_kw`. Optional sind `min_run_min` (zusammenhängende Laufzeit) und `min_power_kw` (Mindestleistung im Betrieb, z. B. Wallbox 1.4 bzw. 4.1). Beide sind standardmäßig aus, dann bleibt das Gerät rein linear (LP). Erst wenn eines davon gesetzt ist, kommen Binärvariablen hinzu (MILP).
 - **`program`** (Waschmaschine, Geschirrspüler): feste Leistung für feste Dauer am Stück, nur der Start ist frei.
 
 Fenster dürfen über Mitternacht gehen. Eine Aufgabe gehört zum Tag ihres Fensterbeginns.
@@ -137,14 +137,14 @@ Die Quellen holen über HTTP nur, wenn der Cache fehlt (`data/cache/<source>/<ke
   - `max_shared`: max Σ shared_t
   - `min_cost`: min Σ import_t·(spot_t + markup + Netzentgelt + Abgaben) + Σ shared_t·(ermäßigtes Netzentgelt + Abgaben) − Σ export_t·Einspeisetarif
   - `min_co2`: min Σ import_t·co2_t
-- **Variablen:** `modulating` → kontinuierlich pro Intervall (plus Binärvariablen nur bei `min_run_min`). `program` → eine Binärvariable pro möglichem Start.
+- **Variablen:** `modulating` → kontinuierlich pro Intervall (plus Binärvariablen nur bei `min_run_min`/`min_power_kw`). `program` → eine Binärvariable pro möglichem Start.
 - **Zerlegung (INV-5):** Es wird tageweise gelöst. Ein Block umfasst alle Aufgaben, deren Fenster an Tag d beginnt, mit Horizont bis zum spätesten Fensterende (≤ 48 h). Bereits eingeplante Lasten früherer Blöcke gehen als feste Last ein. Die Blöcke sind unabhängig genug für die Parallelisierung per `concurrent.futures` (optional). Erwartet werden ca. 365 kleine MILPs.
-- **Garantie INV-3:** Der Runner bewertet Baseline und Ergebnis mit derselben Zielfunktion pro Block. Ist das Ergebnis schlechter oder scheitert der Solver (Timeout, infeasible), greift die Greedy-Heuristik und notfalls der Baseline-Fahrplan des Blocks. Das wird im Ergebnis protokolliert, nicht stillschweigend übergangen.
+- **Garantie INV-3:** Der Runner bewertet Baseline und Ergebnis mit derselben Zielfunktion pro Block. Ist das Ergebnis schlechter oder scheitert der Solver (Timeout, infeasible), greift die Greedy-Heuristik und notfalls der Baseline-Fahrplan des Blocks. `Schedule.fallback_blocks` (Liste mit Datum und Grund) und `Schedule.fallback_ratio` werden im Ergebnis und in der UI ausgewiesen, also nie stillschweigend. Ein Test verlangt `fallback_ratio == 0` für das Standardszenario, und der Evaluator wertet einen Rückfall dort als FAIL.
 - **Greedy:** Aufgaben nach Flexibilität sortieren (kleines Fenster zuerst). Energie in die Intervalle mit dem besten Zielwert legen (größter verbleibender Überschuss, niedrigster Preis bzw. niedrigstes CO₂), unter Beachtung von Leistung und Fenster.
 
 ## 6. UI (Streamlit)
 
-Seiten: **Konfiguration** (YAML laden/bearbeiten/speichern), **Ist-Analyse** (KPIs, Tages-/Monatsprofil, Heatmap), **Optimierung** (Ziel und Solver wählen, Start, Laufzeit), **Vergleich** (pro Haushalt und gesamt), **Export** (CSV). Hinweisbox auf jeder Ergebnisseite: „Obergrenze bei perfekter Voraussicht. Annahmen siehe …“. Für Playwright erhalten wichtige Elemente stabile Labels bzw. `key`s. Berechnungen werden per `st.cache_data` gecacht.
+Seiten: **Konfiguration** (YAML laden/bearbeiten/speichern), **Ist-Analyse** (KPIs, Tages-/Monatsprofil, Heatmap), **Optimierung** (Ziel und Solver wählen, Start, Laufzeit), **Vergleich** (pro Haushalt und gesamt), **Export** (CSV). Hinweisbox auf jeder Ergebnisseite: „Obergrenze bei perfekter Voraussicht. Annahmen siehe …“. Neben dem Optimierungsergebnis stehen außerdem „pro Tagesblock optimal, nicht global“ und die Anzahl der Rückfall-Blöcke. Für Playwright erhalten wichtige Elemente stabile Labels bzw. `key`s. Berechnungen werden per `st.cache_data` gecacht.
 
 ## 7. Tests
 

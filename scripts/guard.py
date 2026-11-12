@@ -43,7 +43,13 @@ def git_files(rev: str, prefix: str) -> list[str]:
 
 def check_features(base: str) -> list[str]:
     errors: list[str] = []
-    current: list[dict[str, Any]] = json.loads((ROOT / "feature_list.json").read_text())
+    raw = (ROOT / "feature_list.json").read_text()
+    current: list[dict[str, Any]] = json.loads(raw)
+    if raw != json.dumps(current, ensure_ascii=False, indent=2) + "\n":
+        errors.append(
+            "feature_list.json nicht kanonisch formatiert - nur über "
+            "scripts/set_passes.py ändern (oder --format)"
+        )
     ids = [f.get("id") for f in current]
     if len(ids) != len(set(ids)):
         errors.append("feature_list.json: doppelte IDs")

@@ -17,6 +17,7 @@ Arbeitsliste: `feature_list.json`. Übergabe: `progress.md`.
 | Typecheck | `.venv/bin/mypy` (strict, Konfiguration in pyproject) |
 | Harness-Regeln prüfen | `.venv/bin/python scripts/guard.py` |
 | Nächstes Feature | `scripts/next_feature.sh` |
+| Feature als bestanden markieren | `.venv/bin/python scripts/set_passes.py <ID>` (nur nach Evaluator-PASS) |
 | App manuell | `.venv/bin/streamlit run app/streamlit_app.py` → http://localhost:8501 |
 | Build | entfällt (Python, Installation per `pip install -e ".[dev]"` aus `init.sh`) |
 

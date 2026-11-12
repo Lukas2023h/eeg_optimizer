@@ -27,6 +27,7 @@
       "Bash(.venv/bin/mypy *)",
       "Bash(.venv/bin/python scripts/guard.py)",
       "Bash(.venv/bin/python scripts/guard.py *)",
+      "Bash(.venv/bin/python scripts/set_passes.py *)",
       "Bash(.venv/bin/python -m eeg_optimizer *)",
       "Bash(.venv/bin/python -c *)",
       "Bash(.venv/bin/python -)",

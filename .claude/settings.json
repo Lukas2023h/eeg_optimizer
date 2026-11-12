@@ -31,6 +31,7 @@
       "Bash(.venv/bin/python -m eeg_optimizer *)",
       "Bash(.venv/bin/python -c *)",
       "Bash(.venv/bin/python -)",
+      "Bash(.venv/bin/python - <<*)",
       "Bash(.venv/bin/pip install -e *)",
       "Bash(.venv/bin/pip install -r requirements.lock)",
       "Bash(.venv/bin/pip freeze *)",

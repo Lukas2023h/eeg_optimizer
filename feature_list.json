@@ -25,7 +25,7 @@
       "validate_frame akzeptiert einen korrekten 15-min-Frame in Europe/Vienna",
       "mypy --strict meldet Fehler, wenn KW an eine Funktion mit KWh-Parameter übergeben wird (Test via mypy.api auf ein Snippet oder dokumentiertes reveal-Beispiel in tests/unit/test_units_typing.py)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F1-02",

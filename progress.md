@@ -13,6 +13,19 @@ Neueste Einträge **oben**. Ein Eintrag pro Session. Vorlage:
 
 ---
 
+## 2026-11-12 – F1-01 – Einheiten-Modul und Frame-Validierung
+- Ergebnis: PASS (Evaluator: 1× FAIL, dann PASS; Reviewer OK)
+- Gemacht: `src/eeg_optimizer/units.py` mit den NewTypes `KWh`, `KW`, `Eur`, `KgCO2`, `kw_to_kwh`/`kwh_to_kw` (Default 15 min, Intervall > 0) und `validate_frame` (`FrameValidationError`). Geprüft werden DatetimeIndex, tz Europe/Vienna, nicht leer, eindeutig, sortiert, 15-min-ausgerichtet, lückenlos, Spaltennamen eindeutig, Zahlenspalten mit Suffix, Suffix-Spalten numerisch (nicht bool/complex), kein NaN/inf, kein negatives `_kwh`. Die Meldungen nennen Spalte und ersten betroffenen Zeitstempel. `_ct_per_kwh` zählt nicht als Energie, negative Preise sind also erlaubt. `interval` muss 1 h teilen. Tests: `tests/unit/test_units.py` (inkl. DST-Tage 92/100), `test_units_typing.py` (mypy.api --strict auf Snippet), `test_units_architecture.py` (kein `* 0.25`/`/ 0.25` außerhalb units.py, laut architecture.md §3.1) und `tests/property/test_units_properties.py` (Roundtrip, Lücken- und Negativ-Erkennung über ganz 2023).
+- Evaluator-FAIL behoben: Spalten mit Einheiten-Suffix und object/string-dtype wurden ungeprüft akzeptiert. Jetzt gilt: Suffix → numerischer dtype Pflicht.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - Zahlen-Strings (`"1"`, `"2"`), gemischte object-Spalten und kategoriale Spalten **ohne** Suffix werden noch akzeptiert. CSV-Quellen müssen Zahlen vor `validate_frame` parsen.
+  - bool-Spalten ohne Suffix werden abgelehnt. Falls der Optimierer Flag-Spalten braucht, vorher entscheiden und architecture.md §3.1 ergänzen.
+  - Die tz-Prüfung vergleicht `str(tz)`, deshalb wird dateutil-`Europe/Vienna` abgelehnt (zoneinfo/pytz gehen).
+  - Der Architekturtest erkennt nur 0.25, nicht `/ 4` oder `/ 3600`.
+  - Die zwei mypy-Läufe im Typing-Test kosten zusammen ca. 5 s.
+- Nächster Schritt: `scripts/next_feature.sh`.
+
 ## 2026-11-12 – Harness – autoloop-Testlauf (1 Iteration)
 - Ergebnis: REPARATUR (Harness)
 - Gemacht: `scripts/autoloop.sh 1` lief gegen F1-01. Die headless Session meldete korrekt `LOOP_STATUS: FAIL F1-01`, ohne Codeänderung, mit sauberem Worktree. Ursache: Der Workspace war nicht vertraut, deshalb ignorierte Claude alle 53 Allow-Einträge aus `.claude/settings.json`. Behoben: Die Vorabprüfung in autoloop.sh liest `hasTrustDialogAccepted` aus `~/.claude.json`. Der Status wird nur noch aus JSON-Zeilen gelesen (die vorangestellte Warnzeile hatte jq gebrochen). Verweigerte Aufrufe stehen jetzt in `summary.log`. CLAUDE.md verlangt, Befehle nicht zu verketten.

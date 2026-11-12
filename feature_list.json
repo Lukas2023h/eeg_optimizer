@@ -11,7 +11,7 @@
       "E2E-Test tests/e2e/test_health.py öffnet die Seite per Playwright und prüft den Text; keine Streamlit-Exception sichtbar",
       "scripts/check.sh --e2e ist grün"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F1-01",

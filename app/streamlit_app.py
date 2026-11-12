@@ -2,13 +2,12 @@
 
 import streamlit as st
 
-from eeg_optimizer import __version__
-
 st.set_page_config(page_title="EEG-Optimizer", layout="wide")
 
-st.title("EEG-Optimizer")
-st.caption(f"Version {__version__}")
-st.write(
-    "Simulation und Optimierung des Eigenverbrauchs einer kleinen Energiegemeinschaft. "
-    "Ergebnisse sind eine Obergrenze des Potenzials (perfekte Voraussicht)."
+navigation = st.navigation(
+    [
+        st.Page("pages/home.py", title="Start", default=True),
+        st.Page("pages/status.py", title="Systemstatus", url_path="systemstatus"),
+    ]
 )
+navigation.run()

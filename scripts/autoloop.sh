@@ -21,6 +21,11 @@ PROMPT='Arbeite eine Session nach dem Session-Protokoll in CLAUDE.md ab: Skill s
 stop() { echo "[autoloop] STOPP: $*" | tee -a "$LOG_DIR/summary.log" >&2; exit 1; }
 open_count() { jq '[.[] | select(.passes|not)] | length' feature_list.json; }
 
+# Preflight: project allowlist is ignored in untrusted workspaces (headless can't show the dialog)
+trusted="$(jq -r --arg p "$PWD" '.projects[$p].hasTrustDialogAccepted // false' ~/.claude.json 2>/dev/null || echo false)"
+[[ "$trusted" == "true" ]] || stop "Workspace nicht vertraut - Projekt-Allowlist würde ignoriert.
+  Einmalig interaktiv 'claude' in $PWD starten und den Trust-Dialog bestätigen."
+
 for i in $(seq 1 "$MAX"); do
   ts="$(date +%Y%m%d-%H%M%S)"
   log="$LOG_DIR/iter-$i-$ts.jsonl"
@@ -35,7 +40,11 @@ for i in $(seq 1 "$MAX"); do
   claude -p "$PROMPT" --output-format stream-json --verbose >"$log" 2>&1 \
     || stop "claude beendet mit Fehler (siehe $log)"
 
-  status="$(jq -r 'select(.type=="result") | .result' "$log" 2>/dev/null | grep -oE 'LOOP_STATUS: (PASS|FAIL) [A-Za-z0-9-]+' | tail -1 || true)"
+  # stream-json may be preceded by plain warning lines -> parse JSON lines only
+  result_json="$(grep '^{' "$log" | jq -c 'select(.type=="result")' 2>/dev/null | tail -1)"
+  denials="$(jq -r '[.permission_denials[]? | .tool_name + ": " + ((.tool_input.command // .tool_input.file_path // "") | .[0:120])] | .[]' <<<"$result_json" 2>/dev/null || true)"
+  [[ -z "$denials" ]] || { echo "[autoloop] $i: verweigerte Aufrufe:"; sed 's/^/    /' <<<"$denials"; } | tee -a "$LOG_DIR/summary.log"
+  status="$(jq -r '.result // empty' <<<"$result_json" 2>/dev/null | grep -oE 'LOOP_STATUS: (PASS|FAIL) [A-Za-z0-9-]+' | tail -1 || true)"
   echo "[autoloop] $i: ${status:-kein LOOP_STATUS}" | tee -a "$LOG_DIR/summary.log"
 
   [[ -z "$(git status --porcelain)" ]] || stop "uncommittete Änderungen nach Iteration $i"

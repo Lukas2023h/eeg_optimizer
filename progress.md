@@ -13,6 +13,13 @@ Neueste Einträge **oben**. Ein Eintrag pro Session. Vorlage:
 
 ---
 
+## 2026-11-12 – Harness – autoloop-Testlauf (1 Iteration)
+- Ergebnis: REPARATUR (Harness)
+- Gemacht: `scripts/autoloop.sh 1` lief gegen F1-01. Die headless Session meldete korrekt `LOOP_STATUS: FAIL F1-01`, ohne Codeänderung, mit sauberem Worktree. Ursache: Der Workspace war nicht vertraut, deshalb ignorierte Claude alle 53 Allow-Einträge aus `.claude/settings.json`. Behoben: Die Vorabprüfung in autoloop.sh liest `hasTrustDialogAccepted` aus `~/.claude.json`. Der Status wird nur noch aus JSON-Zeilen gelesen (die vorangestellte Warnzeile hatte jq gebrochen). Verweigerte Aufrufe stehen jetzt in `summary.log`. CLAUDE.md verlangt, Befehle nicht zu verketten.
+- Neue Abhängigkeiten: –
+- Offene Probleme: Der Workspace muss einmal interaktiv als vertraut bestätigt werden (Nutzer). Danach autoloop erneut mit 1 Iteration testen.
+- Nächster Schritt: F1-01.
+
 ## 2026-11-12 – H-01 – Healthcheck-Seite (Harness-Probelauf)
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: `health.collect_status()` (Version, Python, Solver, Ordner) mit Unit-Tests. Navigation per `st.navigation` mit den Seiten Start und Systemstatus (`/systemstatus`). Zwei E2E-Tests (Navigation, direkte URL). Evaluator-Minors behoben (Python-Version-Assert, unveränderliche Felder).

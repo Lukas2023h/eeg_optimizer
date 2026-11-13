@@ -101,6 +101,8 @@ Fenster dürfen über Mitternacht gehen. Eine Aufgabe gehört zum Tag ihres Fens
 
 ## 4. Schnittstellen (Kernfunktionen)
 
+**HTW-Lastprofile (`sources/htw.py`):** Tjaden et al., HTW Berlin, Lizenz CC BY-NC 4.0. Geladen wird `CSV_74_Loadprofiles_1min_W_var.zip` (0,21 GB) aus dem Nextcloud-Share `https://cloud.htw-berlin.de/s/wLEKCqpAniw4TpQ` (Passwort `profile`). Die 1-s-Variante (5,4 GB) wird nicht verwendet: Die 1-min-Werte sind Mittelwerte und liefern dieselbe 15-min-Energie. Originalzeitzone ist ganzjährig MEZ (UTC+1, ohne Sommerzeit), Datenjahr 2010. Das Roharchiv liegt unter `data/raw/htw/`, alle 74 Profile werden einmal geparst und als 15-min-Frame gecacht. Wochentagsgetreu auf das Zieljahr abgebildet wird in MEZ-Tagen, Details im Modul-Docstring.
+
 ```python
 # sources/*: jede Quelle
 def load_pv(cfg: PvConfig, loc: Location, year: int, cache: Cache) -> pd.DataFrame        # pv_kwh

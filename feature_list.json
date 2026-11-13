@@ -109,7 +109,7 @@
       "Download-URL, Lizenz und Originalzeitzone der Daten in docs/architecture.md oder Modul-Docstring dokumentiert",
       "Network-Test: Profil 1 Jahresverbrauch im dokumentierten Bereich"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F1-07",

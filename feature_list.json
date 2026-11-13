@@ -42,7 +42,7 @@
       "rate_to_15min wiederholt Raten unverändert (Test mit ct/kWh)",
       "Ergebnis-Frames bestehen units.validate_frame"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F1-03",

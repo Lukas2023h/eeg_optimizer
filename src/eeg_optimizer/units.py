@@ -56,6 +56,14 @@ def kwh_to_kw(energy: KWh, interval: timedelta = INTERVAL) -> KW:
     return KW(energy / _hours(interval))
 
 
+_W_PER_KW: Final = 1000.0
+
+
+def w_to_kw(power_w: float) -> KW:
+    """Power in kilowatts from power in watts (raw source data such as 1-s profiles)."""
+    return KW(power_w / _W_PER_KW)
+
+
 def _unit_suffix(column: str) -> str | None:
     # Longest match first: "_ct_per_kwh" also ends with "_kwh".
     for suffix in sorted(ALLOWED_SUFFIXES, key=len, reverse=True):

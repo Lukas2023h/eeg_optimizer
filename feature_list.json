@@ -58,7 +58,7 @@
       "Cache-Pfad per Umgebungsvariable EEG_DATA_DIR überschreibbar, Default data/",
       "git check-ignore data/cache/x.parquet bestätigt, dass Cache-Dateien ignoriert werden"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F1-04",

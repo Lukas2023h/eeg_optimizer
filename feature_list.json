@@ -91,7 +91,7 @@
       "Zweiter Aufruf nutzt den Cache (kein HTTP)",
       "Zeitstempel-Konvention von PVGIS (UTC, Intervallmitte) ist im Code kommentiert und korrekt behandelt"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F1-06",

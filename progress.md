@@ -13,6 +13,23 @@ Neueste Einträge **oben**. Ein Eintrag pro Session. Vorlage:
 
 ---
 
+## 2026-11-13 – F1-05 – PV-Erzeugung aus PVGIS
+- Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
+- Gemacht: `src/eeg_optimizer/sources/pvgis.py` mit folgenden Funktionen:
+  - `hourly_to_15min(raw)`: PVGIS-Stundenwerte (UTC, Stempel `HH:10` liegt **innerhalb** der Stunde, `P` = mittlere Leistung in W) werden auf den Stundenbeginn abgerundet. Danach W → kWh über `units`, Umrechnung nach Europe/Vienna, gleichmäßig auf 4 Viertelstunden verteilt. Uneinheitliche Minuten-Versätze, NaN/inf/negativ und Lücken führen zu einem Fehler. Die Konvention steht im Modul-Docstring.
+  - `map_to_year(frame, year)`: Das PVGIS-Jahr ist ein UTC-Jahr. Die letzte UTC-Stunde (31.12. 23:00 UTC, Nacht) wird an den Anfang des Wiener Jahres verschoben, die Jahressumme bleibt erhalten.
+  - `load_pv(*, kwp, tilt_deg, azimuth_deg, latitude_deg, longitude_deg, year=2023, loss_pct=14, cache=None)`: azimuth 0 = Süd (PVGIS-Konvention), an pvlib geht er als +180. Die Parameter werden vor dem Request geprüft. Gecacht wird der fertige 15-min-Frame, der Key enthält die exakten Parameterwerte. Bei einem Cache-Hit werden Spalte und Jahresindex geprüft. Der HTTP-Timeout ist explizit (60 s).
+  - Fixture `tests/fixtures/pvgis_linz_10kwp_30deg_south_2023-06-20_3d.json` (echte PVGIS-Antwort, gekürzt auf 72 h). Tests: `tests/unit/test_pvgis.py` (Fixture, Mock auf pvlib- und auf requests-Ebene, Cache, Fehlerpfade, Network-Test) und `tests/property/test_pvgis_properties.py`.
+  - Real-API: Linz, 10 kWp, 30°, Süd, 2023 ergibt 11 281,7 kWh.
+- Neue Abhängigkeiten: – (pvlib war schon deklariert)
+- Offene Probleme (minor/nit):
+  - Signatur weicht von architecture.md (`load_pv(cfg, loc, year, cache)`) ab, weil PvConfig/Location erst mit F2 kommen. Dann braucht es einen dünnen Adapter.
+  - `map_to_year` setzt für 1.1. 00:00–01:00 lokal die Nachtstunde 31.12. 23:00 UTC desselben Datenjahres ein. Bei österreichischen Breiten ist das harmlos (PV = 0), in spec §7 aber nicht erwähnt.
+  - Azimuth `-0.0` und `0.0` erzeugen verschiedene Cache-Keys, das kostet höchstens einen zusätzlichen Download.
+  - Der Fixture wurde mit `components=1` aufgenommen, der Code fragt `components=False` ab. Für die Spalte `P` ist das ohne Wirkung.
+  - Verfügbare PVGIS-Jahre (SARAH3) reichen bis 2023. Spätere Jahre scheitern mit einem HTTP-Fehler von PVGIS, es gibt keinen Rückfall.
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-06 HTW-Lastprofile).
+
 ## 2026-11-13 – F1-04 – Synthetische Beispieldaten
 - Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
 - Gemacht: `src/eeg_optimizer/sources/synthetic.py` enthält vier Generatoren. Sie nehmen nur Schlüsselwortargumente, sind deterministisch per Seed und liefern ein ganzes Jahr im 15-min-Raster, das `validate_frame` besteht:

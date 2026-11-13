@@ -73,7 +73,7 @@
       "Gleicher Seed -> identische Daten (Test); PV nachts 0 und mittags > 0; Jahressumme Last je Haushalt plausibel 2000–6000 kWh (Test)",
       "Konfiguration kann source: synthetic für PV und Last wählen (wird in F2-01 genutzt; hier Funktion mit Parametern)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F1-05",

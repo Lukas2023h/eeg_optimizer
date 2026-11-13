@@ -13,6 +13,23 @@ Neueste Einträge **oben**. Ein Eintrag pro Session. Vorlage:
 
 ---
 
+## 2026-11-13 – F1-04 – Synthetische Beispieldaten
+- Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
+- Gemacht: `src/eeg_optimizer/sources/synthetic.py` enthält vier Generatoren. Sie nehmen nur Schlüsselwortargumente, sind deterministisch per Seed und liefern ein ganzes Jahr im 15-min-Raster, das `validate_frame` besteht:
+  - `synthetic_pv(kwp, seed, year, latitude_deg, longitude_deg)`: einfache Sonnenstandsrechnung (Intervallmitte, Zeitgleichung), PR 0,85 und Klarheitsindex pro Tag. Die Leistung ist ≤ kWp, das ergibt ca. 1100–1170 kWh/kWp in Linz. Nur Nordhalbkugel (0–66° N).
+  - `synthetic_load(seed, annual_kwh=None, year)`: Spitzen morgens, mittags und abends, Wochenende verschoben, Winterzuschlag, lognormales Rauschen. Normiert exakt auf `annual_kwh`. Ohne Angabe wird der Wert aus 2500–4500 kWh gezogen, über einen eigenen Zufallsstrom.
+  - `synthetic_spot_prices(seed, year)`: ca. 10 ct/kWh, stundenkonstant, gelegentlich negativ zu sonnigen Mittagen.
+  - `synthetic_co2_intensity(seed, year)`: ca. 180 g/kWh, immer ≥ 30.
+
+  Jede Größe nutzt einen eigenen RNG-Strom `[seed, stream]`. numpy-Integer-Seeds werden akzeptiert, Fehler werfen `SyntheticDataError` mit deutscher Meldung. Tests: `tests/unit/test_synthetic.py` und `tests/property/test_synthetic_properties.py` (beliebige Seeds und kWp bzw. Jahresverbrauch).
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - Die Signaturen weichen von der Quellen-Schnittstelle in docs/architecture.md (Abschnitt `sources/*`, `load_pv(cfg, loc, year, cache)`) ab, deshalb braucht F2-01/F2-03 einen Adapter. Laut Akzeptanz ist das so gewollt.
+  - PV wird über `power_kw * kw_to_kwh(KW(1.0))` umgerechnet (Faktor aus units, wie in timeseries.py). Eine Array-Variante in `units.py` wäre sauberer, spätestens für F1-05 überlegen.
+  - Der Architekturtest (`* 0.25`) schlug bei einer Saisonamplitude von 0,25 falsch an. Gelöst über eine benannte Konstante (0,3).
+  - PV ignoriert Neigung und Azimut (horizontale Fläche). Für Demo und Tests reicht das.
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-05 PVGIS).
+
 ## 2026-11-13 – F1-03 – Parquet-Cache für Datenquellen
 - Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
 - Gemacht: `src/eeg_optimizer/sources/cache.py` mit folgenden Teilen:

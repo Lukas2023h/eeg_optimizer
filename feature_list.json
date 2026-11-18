@@ -142,7 +142,7 @@
       "Gewählte Methode (Endpunkt bzw. Emissionsfaktoren mit Quelle) in spec §7.2 bzw. docs/ dokumentiert",
       "Network-Test: Jahresmittel 2023 zwischen 50 und 250 g/kWh"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F1-09",

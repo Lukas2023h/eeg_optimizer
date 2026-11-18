@@ -105,6 +105,8 @@ Fenster dürfen über Mitternacht gehen. Eine Aufgabe gehört zum Tag ihres Fens
 
 **Spotpreise (`sources/awattar.py`):** `GET https://api.awattar.at/v1/marketdata?start=<ms>&end=<ms>`, ohne API-Key, Timeout 30 s. Zeitstempel sind UTC-Millisekunden (Intervallbeginn), Preise in €/MWh (EPEX Day-Ahead, Gebotszone AT). Geladen wird in Monats-Chunks nach Ortszeit, jeder Monat wird als `awattar/<jahr>-<monat>` gecacht. Die Umrechnung €/MWh → ct/kWh läuft über `units.eur_per_mwh_to_ct_per_kwh` (÷ 10), die Stundenwerte werden unverändert auf 15 min wiederholt. Negative Preise bleiben erhalten, fehlende Stunden führen zu `AwattarError`.
 
+**CO₂-Intensität (`sources/energy_charts.py`):** `GET https://api.energy-charts.info/public_power?country=at&start=<UTC-ISO>&end=<UTC-ISO>` (beide Grenzen inklusive), ohne API-Key, Timeout 120 s. Es gibt keinen CO₂-Endpunkt für AT. `co2_g_per_kwh` wird pro 15-min-Intervall als erzeugungsgewichtetes Mittel der Emissionsfaktoren berechnet (Methode und Faktoren: spec §7.2). Geladen wird **ein Request pro Jahr**, Monats-Chunks laufen in das Rate-Limit (HTTP 429). Gecacht wird als `energy_charts/co2-<FACTORS_VERSION>-<jahr>`. Ändert sich ein Faktor, muss `FACTORS_VERSION` erhöht werden. Unbekannte Erzeugungsarten, `null`-Werte, negative Erzeugung und Lücken führen zu `EnergyChartsError`.
+
 ```python
 # sources/*: jede Quelle
 def load_pv(cfg: PvConfig, loc: Location, year: int, cache: Cache) -> pd.DataFrame        # pv_kwh

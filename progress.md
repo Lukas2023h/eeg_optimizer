@@ -36,7 +36,21 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - PVGIS (SARAH3) liefert Jahre nur bis 2023, kein Rückfall. HTW: andere Jahre als 2023 bis zu 6 Tage um 1 h verschoben, keine Feiertage; erster Parse ca. 5 s und 1 GB RAM. (F1-05, F1-06)
 - Cache ohne Lock (paralleler Miss lädt doppelt, Datei bleibt gültig). `PROJECT_ROOT` setzt die editierbare Installation voraus. (F1-03, H-01)
 
+**Für F5-05 / F6 (CO₂):**
+- `co2_g_per_kwh` ist ein Lebenszyklus-Mittel (IPCC AR5) der AT-Erzeugung ohne Importe, 2023 im Mittel 90,7 g/kWh. Die UI muss die Vereinfachung vermerken (spec §7.2). (F1-08)
+
 ---
+
+## 2026-11-18 – F1-08 – CO₂-Intensität Österreich aus Energy-Charts
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `src/eeg_optimizer/sources/energy_charts.py`. Energy-Charts hat keinen CO₂-Endpunkt für AT, deshalb wird die Intensität aus `/public_power?country=at` (15-min, MW) berechnet: erzeugungsgewichtete Emissionsfaktoren (IPCC AR5 plus 4 eigene Annahmen), ohne Import/Export und Pumpstrom. Das Ergebnis ist 15-min statt stündlich. Ein Request pro Jahr, Cache `energy_charts/co2-ipcc-ar5-v1-<jahr>`. Unbekannte Typen, `null`, negative Werte und Lücken führen zu `EnergyChartsError`. Methode und Faktoren stehen in spec §7.2, die Schnittstelle in architecture.md §4. Fixtures: 2.7.2023 und der DST-Tag 26.3.2023. Der Network-Test ist grün, Jahresmittel 2023 = 90,7 g/kWh.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - Monats-Chunks wie bei aWATTar liefen in HTTP 429 (Rate-Limit), deshalb ein Jahres-Request. Ein 429 wird nicht automatisch wiederholt, er wird als HTTPError gemeldet.
+  - Die Faktoren für Müll/Sonstige (700) und Öl (650) sind eigene Annahmen.
+  - Die Lizenz der Fixtures ist im README als CC BY 4.0 (Energy-Charts) angegeben, nicht gesondert geprüft.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh`.
 
 ## 2026-11-18 – F1-07 – Spotpreise aus aWATTar (AT)
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -107,21 +121,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
   - PV ignoriert Neigung und Azimut (horizontale Fläche). Für Demo und Tests reicht das.
 - Fehlertypen: signatur-abweichung, architekturtest-fehlalarm
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-05 PVGIS).
-
-## 2026-11-13 – F1-03 – Parquet-Cache für Datenquellen
-- Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
-- Gemacht: `src/eeg_optimizer/sources/cache.py` mit folgenden Teilen:
-  - `Cache(directory, allow_fetch=True)` mit `get_or_fetch(source, key, fetch_fn)`. Dateien liegen unter `<dir>/<source>/<key>.parquet`. Ein Miss gibt den zurückgelesenen Frame zurück, damit Miss und Hit identisch sind (Parquet verliert `index.freq`). Mit `allow_fetch=False` wirft ein Miss `CacheMissError`, für Tests mit Fixture-Cache.
-  - Namen werden validiert (kein Pfadtrenner, kein `..`, kein führender Punkt). Das Schreiben ist atomar über `mkstemp` + `os.replace`.
-  - Nicht-DataFrame-Ergebnisse, Spaltennamen, die keine Strings sind, und korrupte Dateien führen zu `CacheError` mit deutscher Meldung.
-  - `data_dir()`/`default_cache()` lesen `EEG_DATA_DIR` (Default `<projekt>/data`, Cache unter `data/cache`).
-
-  Tests: `tests/unit/test_cache.py` (Zähler, Roundtrip am DST-Tag, ganzes Jahr, UTC, Env-Override, `git check-ignore`, unsichere Namen, Fehlerpfade) und `tests/property/test_cache_properties.py` (beliebige gültige Frames 2023 überstehen den Roundtrip).
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit):
-  - `PROJECT_ROOT` (parents[3]) setzt die editierbare Installation voraus, wie schon in `health.py`.
-  - Greifen zwei Sessions gleichzeitig auf denselben fehlenden Eintrag zu, wird doppelt geladen. Die Datei bleibt dank atomarem Ersetzen gültig, es gibt keinen Lock.
-  - Ein relatives `EEG_DATA_DIR` wird gegen das CWD aufgelöst (im Docstring dokumentiert).
-  - Cache-Dateien haben Modus 0600 (von mkstemp).
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-04 Synthetische Beispieldaten).

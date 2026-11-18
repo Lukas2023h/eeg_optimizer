@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-11-13 – F1-03 – Parquet-Cache für Datenquellen
+- Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
+- Gemacht: `src/eeg_optimizer/sources/cache.py` mit folgenden Teilen:
+  - `Cache(directory, allow_fetch=True)` mit `get_or_fetch(source, key, fetch_fn)`. Dateien liegen unter `<dir>/<source>/<key>.parquet`. Ein Miss gibt den zurückgelesenen Frame zurück, damit Miss und Hit identisch sind (Parquet verliert `index.freq`). Mit `allow_fetch=False` wirft ein Miss `CacheMissError`, für Tests mit Fixture-Cache.
+  - Namen werden validiert (kein Pfadtrenner, kein `..`, kein führender Punkt). Das Schreiben ist atomar über `mkstemp` + `os.replace`.
+  - Nicht-DataFrame-Ergebnisse, Spaltennamen, die keine Strings sind, und korrupte Dateien führen zu `CacheError` mit deutscher Meldung.
+  - `data_dir()`/`default_cache()` lesen `EEG_DATA_DIR` (Default `<projekt>/data`, Cache unter `data/cache`).
+
+  Tests: `tests/unit/test_cache.py` (Zähler, Roundtrip am DST-Tag, ganzes Jahr, UTC, Env-Override, `git check-ignore`, unsichere Namen, Fehlerpfade) und `tests/property/test_cache_properties.py` (beliebige gültige Frames 2023 überstehen den Roundtrip).
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - `PROJECT_ROOT` (parents[3]) setzt die editierbare Installation voraus, wie schon in `health.py`.
+  - Greifen zwei Sessions gleichzeitig auf denselben fehlenden Eintrag zu, wird doppelt geladen. Die Datei bleibt dank atomarem Ersetzen gültig, es gibt keinen Lock.
+  - Ein relatives `EEG_DATA_DIR` wird gegen das CWD aufgelöst (im Docstring dokumentiert).
+  - Cache-Dateien haben Modus 0600 (von mkstemp).
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-04 Synthetische Beispieldaten).
+
 ## 2026-11-13 – F1-02 – Internes Zeitraster und Resampling
 - Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
 - Gemacht: `src/eeg_optimizer/timeseries.py` mit folgenden Funktionen:

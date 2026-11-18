@@ -221,7 +221,7 @@
       "E2E: ungültigen Wert (kWp negativ) eingeben -> deutsche Fehlermeldung sichtbar, keine Streamlit-Exception",
       "Die gewählte Konfiguration ist für die anderen Seiten im Session State verfügbar"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F3-01",

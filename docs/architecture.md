@@ -160,6 +160,8 @@ Die Quellen holen über HTTP nur, wenn der Cache fehlt (`data/cache/<source>/<ke
 
 Seiten: **Konfiguration** (YAML laden/bearbeiten/speichern), **Ist-Analyse** (KPIs, Tages-/Monatsprofil, Heatmap), **Optimierung** (Ziel und Solver wählen, Start, Laufzeit), **Vergleich** (pro Haushalt und gesamt), **Export** (CSV). Hinweisbox auf jeder Ergebnisseite: „Obergrenze bei perfekter Voraussicht. Annahmen siehe …“. Neben dem Optimierungsergebnis stehen außerdem „pro Tagesblock optimal, nicht global“ und die Anzahl der Rückfall-Blöcke. Für Playwright erhalten wichtige Elemente stabile Labels bzw. `key`s. Berechnungen werden per `st.cache_data` gecacht.
 
+**Aktive Konfiguration (F2-04):** Die Seite Konfiguration (`app/pages/configuration.py`, URL `/konfiguration`) legt die gewählte bzw. übernommene Konfiguration als `CommunityConfig` in `st.session_state["community_config"]` ab (Konstante `config_store.SESSION_CONFIG_KEY`), die Herkunftsdatei in `SESSION_PATH_KEY`. Fehlt der Eintrag, laden andere Seiten `config_store.DEFAULT_CONFIG_PATH`. Die Logik ohne Streamlit liegt in `config_store.py`: `available_configs` (Beispiele aus `config/` ohne `defaults.yaml` plus `data/configs/*.yaml`), `apply_edits(cfg, teil_mapping)` (Validierung nur über `parse_config`), `resize_households` und `save_user_config` (nach `data/configs/<name>.yaml`, Name nur `[A-Za-z0-9_-]`). Ungültige Eingaben zeigen die `ConfigError`-Meldung und lassen die zuletzt gültige Konfiguration aktiv.
+
 ## 7. Tests
 
 | Ebene | Inhalt | Läuft |

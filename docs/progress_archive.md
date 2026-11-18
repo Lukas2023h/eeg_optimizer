@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-11-18 – F1-07 – Spotpreise aus aWATTar (AT)
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Die Umsetzung aus der unterbrochenen Vorsession (WIP-Commit 3274fcb) wurde geprüft und abgeschlossen. `src/eeg_optimizer/sources/awattar.py` lädt die Daten in Monats-Chunks nach Ortszeit und cacht sie unter `awattar/<jahr>-<monat>`. `parse_marketdata` wirft bei Lücken, Duplikaten, Stunden außerhalb des Zeitraums, falscher Einheit oder Nicht-Stundenzeilen einen `AwattarError`. Die Stundenwerte werden über `rate_to_15min` auf 15 min wiederholt. Neu in `units` ist `eur_per_mwh_to_ct_per_kwh` (skalar und für Arrays). Fixtures: 2.7.2023 und der DST-Tag 26.3.2023. Der Network-Test für Januar 2023 ist grün (1,3 s). Die Signaturabweichung von architecture.md §4 steht im Modul-Docstring, sie ist kompatibel und braucht keinen Adapter.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - `to_15min` ist ein reiner Wrapper um `rate_to_15min`.
+  - Das erwartete 15-min-Raster wird in `load_month` lokal neu berechnet.
+  - Die Preisgrenzen im Network-Test (5–30 ct/kWh im Mittel) sind grob.
+  - Ab 1.10.2025 gibt es 15-min-Day-Ahead-Produkte. Sie werden bewusst mit Fehler abgelehnt, nur Stundenprodukte sind unterstützt.
+- Fehlertypen: signatur-abweichung
+- Nächster Schritt: `scripts/next_feature.sh`.
+
 ## 2026-11-13 – F1-06 – Haushaltslast aus HTW-Berlin-Profilen
 - Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
 - Gemacht: `src/eeg_optimizer/sources/htw.py` mit folgenden Funktionen:

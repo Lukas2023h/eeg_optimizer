@@ -266,7 +266,7 @@
       "Property-Test INV-7: Summe der Haushaltsanteile == Gemeinschaftswert pro Intervall (Toleranz 1e-6); kein Haushalt erhält mehr shared als seine Last",
       "Intervall mit Gesamtlast 0 -> Anteile 0, kein NaN (Test)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F3-04",

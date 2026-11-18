@@ -47,12 +47,22 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 **Für F3 (Bilanz/Kennzahlen):**
 - F3-02..F3-05: `balance.community_balance(pv, loads)` liefert `BALANCE_COLUMNS` (pv/load/shared/export/grid_import `_kwh`). Eingänge passen direkt zu `CommunityInputs.pv`/`.loads`. Die Spaltennamen sind als Konstanten in `balance.py` doppelt zu `community.PV_COLUMN`/`LOAD_COLUMN` definiert; bei Gelegenheit zusammenführen. (F3-01)
 
+- F3-06/F6-01: `allocation.strategy_for(cfg.allocation).allocate(balance, loads)` liefert die Haushaltsaufteilung (Spalten-MultiIndex `household_id` × `quantity`). Zugriff typisiert über `household_ids`, `household_frame(result, hh)` (load/shared/grid_import `_kwh`) und `community_totals(result)`; `result[hh]` ist laut pandas-stubs eine Series (mypy). `balance` muss zu genau diesen `loads` gehören, sonst `AllocationInputError`. Ein unbekannter Strategiename wirft `KeyError` mit deutscher Meldung. (F3-03)
+
 - F3-06: `balance.kpis(balance)` liefert `Kpis` (KWh-Summen + `self_consumption_ratio`/`autarky_ratio` in [0, 1]). `balance.monthly_kpis(balance)` liefert einen DataFrame mit einer Zeile pro Monat (Index `month` = Monatsbeginn, tz Vienna), Spalten `MONTHLY_KPI_COLUMNS`. Für die Anzeige in % mit 100 multiplizieren. (F3-02)
 
 **Für den planner (Spec anpassen):**
 - INV-4: Aggregierte Kennzahl-Tabellen tragen dimensionslose Anteile mit dem Suffix `_ratio` (architecture.md §3.1). In spec §5 und CLAUDE.md „Einheiten“ ist das noch nicht nachgezogen, `units.ALLOWED_SUFFIXES` kennt `_ratio` nicht (Zeitreihen brauchen es nicht). (F3-02)
 
 ---
+
+## 2026-11-18 – F3-03 – Verteilschlüssel dynamisch anteilig
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `src/eeg_optimizer/allocation.py` mit `AllocationStrategy`-Protocol, `DynamicProportional` (shared_h = load_h · shared/Σload, grid_import_h = load_h − shared_h, 0 bei Σload = 0), Registry `STRATEGIES` und `strategy_for(AllocationConfig)` sowie den Helfern `household_ids`, `household_frame`, `community_totals`. Die Eingänge werden geprüft (Balance-Spalten, `validate_frame`, Index, Balance passt zu den Lasten mit 1e-6 kWh). Tests: `tests/unit/test_allocation.py` (Werte, Gesamtlast 0 unter `np.errstate(all="raise")`, Summen über die Zeitumstellung, Fehlerfälle, Auswahl per Config) und `tests/property/test_allocation.py` (INV-7 mit 1e-6, shared_h ≤ load_h, alles ≥ 0). architecture.md §4 ist ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (nit): `strategy_for` wirft `KeyError` statt einer `ValueError`-Unterklasse (in `str()` erscheint die Meldung in Anführungszeichen). Die Spaltennamen-Konstanten bleiben doppelt (siehe Offene Punkte F3-01).
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh`.
 
 ## 2026-11-18 – F3-02 – Baseline-Kennzahlen
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -91,13 +101,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
   - `__all__` exportiert auch die Loader-Typaliase.
 - Fehlertypen: –
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F2-04).
-
-## 2026-11-18 – F2-02 – Defaults und Beispielgemeinschaft
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: `config/example_community.yaml` (5 Haushalte, Linz, 2023, 30 kWp, PVGIS/HTW/aWATTar/Energy-Charts) und `config/example_community_offline.yaml` (gleiche Gemeinschaft, alle Quellen synthetic mit Seeds und `annual_kwh`). `defaults.yaml` bekam Kommentare für die Abschnitte und Seeds. Tests: `tests/unit/test_example_configs.py` (Laden beider Dateien, Tarife gegen die geparste Tabelle aus spec §7.1 und gegen fest notierte Zahlen, Offline-Reihen mit gesperrtem Socket, jeder Schlüssel mit deutschem Kommentar, Zahlen mit Einheitshinweis).
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit):
-  - Der Einheiten-Test ist eine Heuristik (Stichwörter wie „Grad“, „ganze Zahl“) und erkennt keine falsche Einheit.
-  - Die Jahresverbräuche in den Kommentaren der HTW-Profile (ca. 1 400 / 3 230 / 8 600 kWh) stammen aus F1-06 und sind nicht per Test geprüft; die Offline-`annual_kwh` sind nur grob daran angelehnt.
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F2-03).

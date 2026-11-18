@@ -138,7 +138,13 @@ def monthly_kpis(balance: pd.DataFrame) -> pd.DataFrame
 # allocation.py
 class AllocationStrategy(Protocol):
     def allocate(self, balance: pd.DataFrame, loads: Mapping[str, pd.DataFrame]) -> pd.DataFrame
-class DynamicProportional: ...
+class DynamicProportional: ...   # shared_h = load_h · shared / Σload (0 bei Σload = 0), grid_import_h = load_h − shared_h
+def strategy_for(config: AllocationConfig) -> AllocationStrategy   # Registry STRATEGIES: allocation.strategy -> Klasse
+# Eingang: balance = community_balance(pv, loads) zu genau diesen loads (Abweichung > 1e-6 kWh -> AllocationInputError).
+# Ausgang: Spalten-MultiIndex (household_id, quantity), Haushalte in der Reihenfolge von loads;
+# household_ids(result), household_frame(result, hh) -> flacher Frame mit HOUSEHOLD_COLUMNS =
+# load_kwh, shared_kwh, grid_import_kwh (validate_frame); community_totals(result) = Summe über Haushalte.
+# INV-7: community_totals(result).shared_kwh == balance.shared_kwh pro Intervall (dito grid_import, Toleranz 1e-6).
 
 # devices.py
 def baseline_schedule(device: Device, index: pd.DatetimeIndex) -> pd.Series   # device_kwh

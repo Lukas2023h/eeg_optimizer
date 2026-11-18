@@ -87,6 +87,19 @@ def eur_per_mwh_to_ct_per_kwh(
     return price_eur_per_mwh * _CT_PER_EUR / _KWH_PER_MWH
 
 
+@overload
+def ct_to_eur(amount_ct: float) -> Eur: ...
+@overload
+def ct_to_eur(amount_ct: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]: ...
+
+
+def ct_to_eur(amount_ct: float | npt.NDArray[np.float64]) -> Eur | npt.NDArray[np.float64]:
+    """Money in euros from an amount in euro cents (100 ct = 1 EUR), element-wise on arrays."""
+    if isinstance(amount_ct, np.ndarray):
+        return amount_ct / _CT_PER_EUR
+    return Eur(amount_ct / _CT_PER_EUR)
+
+
 def _unit_suffix(column: str) -> str | None:
     # Longest match first: "_ct_per_kwh" also ends with "_kwh".
     for suffix in sorted(ALLOWED_SUFFIXES, key=len, reverse=True):

@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-11-18 – F2-03 – Gemeinschafts-Zeitreihen aus Konfiguration bauen
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `src/eeg_optimizer/community.py`. `build_inputs(config, cache=None)` gibt `CommunityInputs` zurück (pv, loads je Haushalts-ID in Config-Reihenfolge, prices, co2). Die Registries `PV_SOURCES`/`LOAD_SOURCES`/`PRICE_SOURCES`/`CO2_SOURCES` bilden den Quellnamen auf dünne Adapter ab (Config-dataclasses → Schlüsselwort-Signaturen der Quellen), damit ist der Adapter-Punkt aus F1-04..F1-06 erledigt. Fehlt eine Quelle, kommt `CommunitySourceError` mit Schlüsselpfad und der Liste der verfügbaren Quellen. An der Grenze wird jeder Frame geprüft: genau die kanonische Spalte, `validate_frame` und Index == `year_index(year)`. architecture.md §4 ist ergänzt. Tests: `tests/unit/test_community.py` (Offline-Build mit gesperrtem Socket, Dispatch, Erweiterbarkeit, Adapter-Argumente der Netzquellen per Mock, Grenzprüfungen) und `tests/property/test_community_properties.py` (INV-4/INV-6, Jahre 2015–2030).
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - Das Standardszenario mit echten Quellen ist nur gemockt getestet (siehe Offene Punkte).
+  - `__all__` exportiert auch die Loader-Typaliase.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F2-04).
+
 ## 2026-11-18 – F2-02 – Defaults und Beispielgemeinschaft
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: `config/example_community.yaml` (5 Haushalte, Linz, 2023, 30 kWp, PVGIS/HTW/aWATTar/Energy-Charts) und `config/example_community_offline.yaml` (gleiche Gemeinschaft, alle Quellen synthetic mit Seeds und `annual_kwh`). `defaults.yaml` bekam Kommentare für die Abschnitte und Seeds. Tests: `tests/unit/test_example_configs.py` (Laden beider Dateien, Tarife gegen die geparste Tabelle aus spec §7.1 und gegen fest notierte Zahlen, Offline-Reihen mit gesperrtem Socket, jeder Schlüssel mit deutschem Kommentar, Zahlen mit Einheitshinweis).

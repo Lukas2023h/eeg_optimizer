@@ -153,7 +153,15 @@ def baseline_schedule(device: Device, index: pd.DatetimeIndex) -> pd.Series   # 
 def optimize(inputs: OptimizationInputs, objective: Objective, solver: Literal["milp","greedy"]) -> Schedule
 
 # economics.py / compare.py
-def costs(balance, tariffs, prices) -> CostResult
+def value_shared_ct_per_kwh(tariffs: TariffConfig) -> float   # spec §7.1, Default local 9.42, regional 7.68
+def costs(balance, allocation, tariffs: TariffConfig, prices: pd.DataFrame | None = None) -> CostResult
+# prices None = fixer Tarif (energy_price); Frame mit genau `spot_ct_per_kwh` = dynamisch (spot + spot_markup),
+# betrifft nur den Energiepreis des Netzbezugs, eeg_internal_price bleibt fix. Cent → € nur über units.ct_to_eur.
+# CostResult (frozen): tariff ("fixed" | "spot"); community = Frame pro Intervall mit COMMUNITY_COST_COLUMNS
+# (grid_import_cost_eur, shared_cost_eur, export_revenue_eur, community_cost_eur = import + shared − export);
+# community_eur: Eur (Summe); households = Tabelle, Index household_id (Reihenfolge der Allocation),
+# Spalten grid_import_cost_eur, shared_cost_eur (shared_h × interner Preis inkl. ermäßigtem Netzentgelt und Abgaben),
+# cost_eur; household_eur(hh) -> Eur. Fehler: CostInputError (Spalten, Index, Allocation passt nicht, Toleranz 1e-6 kWh).
 def emissions(balance, co2) -> EmissionResult
 def compare(baseline: Scenario, optimized: Scenario) -> Comparison
 ```

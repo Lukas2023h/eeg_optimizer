@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-11-18 – F2-01 – Konfigurationsmodell und YAML-Loader
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `src/eeg_optimizer/config.py` enthält frozen dataclasses (`CommunityConfig`, `PvConfig`, `Location`, `LoadConfig`, `TariffConfig`, …) sowie `load_config`, `parse_config`, `merge_dicts`, `config_to_dict` und `save_config`. Die Defaults werden Schlüssel für Schlüssel zusammengeführt. Die Validierung passiert an einer Stelle mit deutschen Meldungen samt Schlüsselpfad. Unbekannte Schlüssel sind Fehler. `effective_grid_fee_reduction` richtet sich nach `eeg_type`, solange nicht explizit gesetzt. `config/defaults.yaml` liegt bei. Tests: `tests/unit/test_config.py` und `tests/property/test_config_properties.py` (Roundtrip, Merge). Die Schnittstelle steht in architecture.md §3.3.
+- Neue Abhängigkeiten: – (pyyaml war schon da)
+- Offene Probleme (nit):
+  - Der eigene YAML-Dumper setzt Steuer- und Zeilentrennzeichen in doppelte Anführungszeichen, weil PyYAML NEL sonst zu einem Leerzeichen macht. Das hat der Property-Test gefunden.
+  - config importiert `PROFILE_COUNT` aus `sources.htw`.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F2-02).
+
 ## 2026-11-18 – F1-08 – CO₂-Intensität Österreich aus Energy-Charts
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: `src/eeg_optimizer/sources/energy_charts.py`. Energy-Charts hat keinen CO₂-Endpunkt für AT, deshalb wird die Intensität aus `/public_power?country=at` (15-min, MW) berechnet: erzeugungsgewichtete Emissionsfaktoren (IPCC AR5 plus 4 eigene Annahmen), ohne Import/Export und Pumpstrom. Das Ergebnis ist 15-min statt stündlich. Ein Request pro Jahr, Cache `energy_charts/co2-ipcc-ar5-v1-<jahr>`. Unbekannte Typen, `null`, negative Werte und Lücken führen zu `EnergyChartsError`. Methode und Faktoren stehen in spec §7.2, die Schnittstelle in architecture.md §4. Fixtures: 2.7.2023 und der DST-Tag 26.3.2023. Der Network-Test ist grün, Jahresmittel 2023 = 90,7 g/kWh.

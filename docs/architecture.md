@@ -61,6 +61,7 @@ eeg_optimizer/
   `_kwh` (Energie pro Intervall), `_kw` (Leistung), `_eur`, `_ct_per_kwh`, `_g_per_kwh`, `_kg_co2`.
 - `units.validate_frame(df)` prüft Raster, Zeitzone, Suffixe, NaN und negative Energien. Es wird an jeder Modulgrenze aufgerufen (Ausgang jeder Quelle, Eingang von balance/optimize).
 - Für Skalare gibt es `NewType`s: `KWh`, `KW`, `Eur`, `KgCO2`. Umrechnung nur über `units.kw_to_kwh(p, interval)` und `units.kwh_to_kw(e, interval)`. mypy `--strict` verhindert eine Vermischung.
+- Ausnahme für aggregierte Kennzahl-Tabellen (kein 15-min-Raster, z. B. `balance.monthly_kpis`): dimensionslose Anteile in [0, 1] tragen das Suffix `_ratio`. Sie sind keine Zeitreihen und gehen nicht durch `validate_frame`.
 - Ein Architekturtest prüft, dass `* 0.25` bzw. `/ 0.25` außerhalb von `units.py` nicht vorkommt.
 
 ### 3.2 Kanonische Spalten
@@ -126,6 +127,13 @@ def community_balance(pv: pd.DataFrame, loads: Mapping[str, pd.DataFrame]) -> pd
 # Ausgang (BALANCE_COLUMNS): pv_kwh, load_kwh (Summe), shared_kwh = min(pv, load),
 # export_kwh = pv − shared, grid_import_kwh = load − shared (INV-1, alle ≥ 0)
 def kpis(balance: pd.DataFrame) -> Kpis   # self_consumption_ratio, autarky_ratio, export_kwh, grid_import_kwh, shared_kwh
+# Kpis (frozen dataclass): pv_kwh, load_kwh, shared_kwh, export_kwh, grid_import_kwh als KWh,
+# self_consumption_ratio = shared/pv, autarky_ratio = shared/load als float in [0, 1];
+# Nenner 0 (keine PV bzw. keine Last) -> 0.0, nie NaN.
+def monthly_kpis(balance: pd.DataFrame) -> pd.DataFrame
+# Eine Zeile je Kalendermonat (Ortszeit), Index `month` = Monatsbeginn tz Europe/Vienna (12 für ein Jahr),
+# Spalten MONTHLY_KPI_COLUMNS = BALANCE_COLUMNS (Monatssummen) + self_consumption_ratio, autarky_ratio.
+# Eingang beider Funktionen: Ausgang von community_balance, sonst BalanceInputError/FrameValidationError.
 
 # allocation.py
 class AllocationStrategy(Protocol):

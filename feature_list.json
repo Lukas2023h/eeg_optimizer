@@ -251,7 +251,7 @@
       "Division durch 0 (PV = 0 bzw. Last = 0) liefert definierte Werte (0.0) statt NaN, getestet",
       "monthly_kpis() liefert 12 Zeilen für 2023"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F3-03",

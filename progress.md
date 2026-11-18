@@ -47,7 +47,20 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 **Für F3 (Bilanz/Kennzahlen):**
 - F3-02..F3-05: `balance.community_balance(pv, loads)` liefert `BALANCE_COLUMNS` (pv/load/shared/export/grid_import `_kwh`). Eingänge passen direkt zu `CommunityInputs.pv`/`.loads`. Die Spaltennamen sind als Konstanten in `balance.py` doppelt zu `community.PV_COLUMN`/`LOAD_COLUMN` definiert; bei Gelegenheit zusammenführen. (F3-01)
 
+- F3-06: `balance.kpis(balance)` liefert `Kpis` (KWh-Summen + `self_consumption_ratio`/`autarky_ratio` in [0, 1]). `balance.monthly_kpis(balance)` liefert einen DataFrame mit einer Zeile pro Monat (Index `month` = Monatsbeginn, tz Vienna), Spalten `MONTHLY_KPI_COLUMNS`. Für die Anzeige in % mit 100 multiplizieren. (F3-02)
+
+**Für den planner (Spec anpassen):**
+- INV-4: Aggregierte Kennzahl-Tabellen tragen dimensionslose Anteile mit dem Suffix `_ratio` (architecture.md §3.1). In spec §5 und CLAUDE.md „Einheiten“ ist das noch nicht nachgezogen, `units.ALLOWED_SUFFIXES` kennt `_ratio` nicht (Zeitreihen brauchen es nicht). (F3-02)
+
 ---
+
+## 2026-11-18 – F3-02 – Baseline-Kennzahlen
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: In `balance.py` sind `Kpis` (frozen dataclass), `kpis()` und `monthly_kpis()` dazugekommen (Monatssummen per `resample("MS")` in Ortszeit, Quoten mit Nenner 0 ergeben 0.0). Der Eingang wird über `BALANCE_COLUMNS` und `validate_frame` geprüft. Tests: `tests/unit/test_kpis.py` (handgerechnetes Beispiel, Division durch 0, 12 Monate 2023, DST-Monate, Teilzeitraum, Fehlerfälle) und Properties in `tests/property/test_balance.py` (Quoten endlich und in [0, 1], Monatssummen = Gesamt). architecture.md §3.1 und §4 sind ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): `_ratio` clippt auf [0, 1] und würde damit eine echte Verletzung von shared ≤ pv verdecken (die Property-Tests decken das ab). `kpis` baut 1-Element-Arrays für `_ratio`. Der Indexname `"month"` ist ein Literal ohne Konstante. Die Monats-Property läuft nur über ≤ 48 Intervalle.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh`.
 
 ## 2026-11-18 – F3-01 – Energiebilanz der Gemeinschaft
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -88,13 +101,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
   - Die Jahresverbräuche in den Kommentaren der HTW-Profile (ca. 1 400 / 3 230 / 8 600 kWh) stammen aus F1-06 und sind nicht per Test geprüft; die Offline-`annual_kwh` sind nur grob daran angelehnt.
 - Fehlertypen: –
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F2-03).
-
-## 2026-11-18 – F2-01 – Konfigurationsmodell und YAML-Loader
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: `src/eeg_optimizer/config.py` enthält frozen dataclasses (`CommunityConfig`, `PvConfig`, `Location`, `LoadConfig`, `TariffConfig`, …) sowie `load_config`, `parse_config`, `merge_dicts`, `config_to_dict` und `save_config`. Die Defaults werden Schlüssel für Schlüssel zusammengeführt. Die Validierung passiert an einer Stelle mit deutschen Meldungen samt Schlüsselpfad. Unbekannte Schlüssel sind Fehler. `effective_grid_fee_reduction` richtet sich nach `eeg_type`, solange nicht explizit gesetzt. `config/defaults.yaml` liegt bei. Tests: `tests/unit/test_config.py` und `tests/property/test_config_properties.py` (Roundtrip, Merge). Die Schnittstelle steht in architecture.md §3.3.
-- Neue Abhängigkeiten: – (pyyaml war schon da)
-- Offene Probleme (nit):
-  - Der eigene YAML-Dumper setzt Steuer- und Zeilentrennzeichen in doppelte Anführungszeichen, weil PyYAML NEL sonst zu einem Leerzeichen macht. Das hat der Property-Test gefunden.
-  - config importiert `PROFILE_COUNT` aus `sources.htw`.
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F2-02).

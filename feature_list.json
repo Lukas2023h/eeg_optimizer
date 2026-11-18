@@ -173,7 +173,7 @@
       "Roundtrip: save_config(load_config(x)) ist inhaltsgleich (Test)",
       "grid_fee_reduction ergibt sich aus eeg_type (local 0.57, regional 0.28), wenn nicht explizit gesetzt"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F2-02",

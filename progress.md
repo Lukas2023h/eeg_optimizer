@@ -19,7 +19,10 @@ Fehlertypen allgemein benennen (`einheiten-suffix`, nicht `bug-in-timeseries`) u
 Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere Features betreffen. Erledigte Punkte löschen, neue mit Quelle `(Fx-yy)` ergänzen.
 
 **Für F2 (Konfiguration):**
-- Quellen-Signaturen weichen von architecture.md §4 ab: `load_pv(*, kwp, tilt_deg, …)`, `load_household(profile, *, year, cache, zip_path)` und die `synthetic_*`-Generatoren statt `load_pv(cfg, loc, year, cache)` / `load_household(cfg, year, cache)`. F2 braucht dünne Adapter auf `PvConfig`/`Location`/`LoadConfig`. (F1-04, F1-05, F1-06)
+- Quellen-Signaturen weichen von architecture.md §4 ab: `load_pv(*, kwp, tilt_deg, …)`, `load_household(profile, *, year, cache, zip_path)` und die `synthetic_*`-Generatoren statt `load_pv(cfg, loc, year, cache)` / `load_household(cfg, year, cache)`. F2-03 braucht dünne Adapter auf die jetzt vorhandenen `PvConfig`/`Location`/`LoadConfig` aus `config.py`. (F1-04, F1-05, F1-06, F2-01)
+- `config/defaults.yaml` existiert schon (Werte aus spec §7.1, Kommentare mit Einheit). F2-02 prüft nur noch die Zahlen per Test und ergänzt die Beispieldateien. (F2-01)
+- `HouseholdConfig.devices` sind rohe dicts. F4-01 parst und validiert sie zu typisierten Geräten. (F2-01)
+- `pv.kwp` muss > 0 sein, eine Gemeinschaft ohne PV ist nicht konfigurierbar. Bei Bedarf auf ≥ 0 lockern. (F2-01)
 
 **Für den planner (Spec anpassen):**
 - spec §7.2: HTW nutzt die 1-min-Variante statt „1 s → 15 min“ (gleicher Datensatz, 1-min = Mittel der Sekundenwerte, nicht gegen 1-s geprüft). (F1-06)
@@ -40,6 +43,16 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - `co2_g_per_kwh` ist ein Lebenszyklus-Mittel (IPCC AR5) der AT-Erzeugung ohne Importe, 2023 im Mittel 90,7 g/kWh. Die UI muss die Vereinfachung vermerken (spec §7.2). (F1-08)
 
 ---
+
+## 2026-11-18 – F2-01 – Konfigurationsmodell und YAML-Loader
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `src/eeg_optimizer/config.py` enthält frozen dataclasses (`CommunityConfig`, `PvConfig`, `Location`, `LoadConfig`, `TariffConfig`, …) sowie `load_config`, `parse_config`, `merge_dicts`, `config_to_dict` und `save_config`. Die Defaults werden Schlüssel für Schlüssel zusammengeführt. Die Validierung passiert an einer Stelle mit deutschen Meldungen samt Schlüsselpfad. Unbekannte Schlüssel sind Fehler. `effective_grid_fee_reduction` richtet sich nach `eeg_type`, solange nicht explizit gesetzt. `config/defaults.yaml` liegt bei. Tests: `tests/unit/test_config.py` und `tests/property/test_config_properties.py` (Roundtrip, Merge). Die Schnittstelle steht in architecture.md §3.3.
+- Neue Abhängigkeiten: – (pyyaml war schon da)
+- Offene Probleme (nit):
+  - Der eigene YAML-Dumper setzt Steuer- und Zeilentrennzeichen in doppelte Anführungszeichen, weil PyYAML NEL sonst zu einem Leerzeichen macht. Das hat der Property-Test gefunden.
+  - config importiert `PROFILE_COUNT` aus `sources.htw`.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F2-02).
 
 ## 2026-11-18 – F1-08 – CO₂-Intensität Österreich aus Energy-Charts
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -103,21 +116,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
   - Verfügbare PVGIS-Jahre (SARAH3) reichen bis 2023. Spätere Jahre scheitern mit einem HTTP-Fehler von PVGIS, es gibt keinen Rückfall.
 - Fehlertypen: signatur-abweichung
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-06 HTW-Lastprofile).
-
-## 2026-11-13 – F1-04 – Synthetische Beispieldaten
-- Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
-- Gemacht: `src/eeg_optimizer/sources/synthetic.py` enthält vier Generatoren. Sie nehmen nur Schlüsselwortargumente, sind deterministisch per Seed und liefern ein ganzes Jahr im 15-min-Raster, das `validate_frame` besteht:
-  - `synthetic_pv(kwp, seed, year, latitude_deg, longitude_deg)`: einfache Sonnenstandsrechnung (Intervallmitte, Zeitgleichung), PR 0,85 und Klarheitsindex pro Tag. Die Leistung ist ≤ kWp, das ergibt ca. 1100–1170 kWh/kWp in Linz. Nur Nordhalbkugel (0–66° N).
-  - `synthetic_load(seed, annual_kwh=None, year)`: Spitzen morgens, mittags und abends, Wochenende verschoben, Winterzuschlag, lognormales Rauschen. Normiert exakt auf `annual_kwh`. Ohne Angabe wird der Wert aus 2500–4500 kWh gezogen, über einen eigenen Zufallsstrom.
-  - `synthetic_spot_prices(seed, year)`: ca. 10 ct/kWh, stundenkonstant, gelegentlich negativ zu sonnigen Mittagen.
-  - `synthetic_co2_intensity(seed, year)`: ca. 180 g/kWh, immer ≥ 30.
-
-  Jede Größe nutzt einen eigenen RNG-Strom `[seed, stream]`. numpy-Integer-Seeds werden akzeptiert, Fehler werfen `SyntheticDataError` mit deutscher Meldung. Tests: `tests/unit/test_synthetic.py` und `tests/property/test_synthetic_properties.py` (beliebige Seeds und kWp bzw. Jahresverbrauch).
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit):
-  - Die Signaturen weichen von der Quellen-Schnittstelle in docs/architecture.md (Abschnitt `sources/*`, `load_pv(cfg, loc, year, cache)`) ab, deshalb braucht F2-01/F2-03 einen Adapter. Laut Akzeptanz ist das so gewollt.
-  - PV wird über `power_kw * kw_to_kwh(KW(1.0))` umgerechnet (Faktor aus units, wie in timeseries.py). Eine Array-Variante in `units.py` wäre sauberer, spätestens für F1-05 überlegen.
-  - Der Architekturtest (`* 0.25`) schlug bei einer Saisonamplitude von 0,25 falsch an. Gelöst über eine benannte Konstante (0,3).
-  - PV ignoriert Neigung und Azimut (horizontale Fläche). Für Demo und Tests reicht das.
-- Fehlertypen: signatur-abweichung, architekturtest-fehlalarm
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-05 PVGIS).

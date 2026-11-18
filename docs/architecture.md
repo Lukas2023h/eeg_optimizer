@@ -93,6 +93,8 @@ households:
          window: {start: "08:00", end: "20:00"}, baseline_start: "19:00"}
 ```
 
+Laden (`config.py`): `load_config(path, defaults_path=config/defaults.yaml)` führt die Gemeinschaftsdatei über die Defaults zusammen (Abschnitte Schlüssel für Schlüssel, Listen werden ersetzt) und validiert an einer Stelle. Fehler werfen `ConfigError` mit deutscher Meldung und Schlüsselpfad (z. B. `pv.kwp: muss größer als 0 sein`). Unbekannte Schlüssel sind Fehler. Weitere Abschnitte: `pv.source` (pvgis | synthetic), `prices: {source: awattar | synthetic}`, `co2: {source: energy_charts | synthetic}`, `load.source` (htw | synthetic | smartmeter), optional `seed`. Erlaubt sind 1–15 Haushalte mit eindeutiger `id`. Ist `tariffs.grid_fee_reduction` nicht gesetzt (`null`), folgt der Wert aus `eeg_type` (`TariffConfig.effective_grid_fee_reduction`). `devices` bleiben rohe Mappings, die `devices.py` (F4-01) validiert. `save_config` schreibt die vollständig zusammengeführte Konfiguration, damit gilt `load_config(save_config(cfg)) == cfg`.
+
 Gerätearten:
 - **`modulating`** (E-Auto, Boiler, Wärmepumpe): Leistung stufenlos 0…`power_kw`. Optional sind `min_run_min` (zusammenhängende Laufzeit) und `min_power_kw` (Mindestleistung im Betrieb, z. B. Wallbox 1.4 bzw. 4.1). Beide sind standardmäßig aus, dann bleibt das Gerät rein linear (LP). Erst wenn eines davon gesetzt ist, kommen Binärvariablen hinzu (MILP).
 - **`program`** (Waschmaschine, Geschirrspüler): feste Leistung für feste Dauer am Stück, nur der Start ist frei.

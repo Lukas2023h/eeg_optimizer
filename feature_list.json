@@ -126,7 +126,7 @@
       "Lücken in der API-Antwort führen zu klarer Fehlermeldung, nicht zu stillem Auffüllen",
       "HTTP mit Timeout; Network-Test lädt Januar 2023"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F1-08",

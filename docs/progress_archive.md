@@ -4,6 +4,24 @@
 
 ---
 
+## 2026-11-13 – F1-02 – Internes Zeitraster und Resampling
+- Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
+- Gemacht: `src/eeg_optimizer/timeseries.py` mit folgenden Funktionen:
+  - `year_index(year)`: 15-min-Raster über UTC gebaut, ergibt 35040 Intervalle, an den DST-Tagen 92/100, im Schaltjahr 35136.
+  - `hourly_energy_to_15min`: extensive Größen (`_kwh`, `_eur`, `_kg_co2`) werden durch 4 geteilt.
+  - `rate_to_15min`: Raten (`_kw`, `_ct_per_kwh`, `_g_per_kwh`) werden unverändert wiederholt.
+  - `aggregate_energy(df, sample_interval)`: summiert `_kwh`/`_kw`/`_w`-Abtastwerte zu 15-min-kWh. Unvollständige oder verschobene Intervalle, Lücken, NaN, negative Werte und doppelte oder unbekannte Spalten führen zu einem `ResampleError`.
+
+  Neu in `units.py` ist `w_to_kw`, damit die Einheitenumrechnung nur dort passiert. Tests: `tests/unit/test_timeseries.py` (inkl. DST-Tage) und `tests/property/test_timeseries_properties.py` (Energieerhalt mit Toleranz 1e-9, Viertel == Stunde/4, Raten unverändert, Aggregation 1 s bis 5 min in W).
+- Eigener Bug beim Testen gefunden: `price_ct_per_kwh` wurde in `aggregate_energy` als `_kwh` erkannt, weil die Suffixe nicht vollständig abgeglichen wurden. Behoben, ein Test sichert das ab.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - Hourly-Funktionen verlangen Eingang in Europe/Vienna. UTC-Quellen (PVGIS, F1-05) müssen vorher `tz_convert` aufrufen.
+  - `hourly_energy_to_15min`/`rate_to_15min` lehnen auch Nicht-Zahlen-Metadatenspalten ab (z. B. `household_id`). Diese Spalten vorher entfernen.
+  - Die Suffix-Klassifikation (extensiv/intensiv) ist eine eigene Liste neben `units.ALLOWED_SUFFIXES`. Ein Unit-Test prüft, dass sie deckungsgleich sind.
+- Fehlertypen: einheiten-suffix
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-03 Parquet-Cache).
+
 ## 2026-11-12 – F1-01 – Einheiten-Modul und Frame-Validierung
 - Ergebnis: PASS (Evaluator: 1× FAIL, dann PASS; Reviewer OK)
 - Gemacht: `src/eeg_optimizer/units.py` mit den NewTypes `KWh`, `KW`, `Eur`, `KgCO2`, `kw_to_kwh`/`kwh_to_kw` (Default 15 min, Intervall > 0) und `validate_frame` (`FrameValidationError`). Geprüft werden DatetimeIndex, tz Europe/Vienna, nicht leer, eindeutig, sortiert, 15-min-ausgerichtet, lückenlos, Spaltennamen eindeutig, Zahlenspalten mit Suffix, Suffix-Spalten numerisch (nicht bool/complex), kein NaN/inf, kein negatives `_kwh`. Die Meldungen nennen Spalte und ersten betroffenen Zeitstempel. `_ct_per_kwh` zählt nicht als Energie, negative Preise sind also erlaubt. `interval` muss 1 h teilen. Tests: `tests/unit/test_units.py` (inkl. DST-Tage 92/100), `test_units_typing.py` (mypy.api --strict auf Snippet), `test_units_architecture.py` (kein `* 0.25`/`/ 0.25` außerhalb units.py, laut architecture.md §3.1) und `tests/property/test_units_properties.py` (Roundtrip, Lücken- und Negativ-Erkennung über ganz 2023).

@@ -38,6 +38,18 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 
 ---
 
+## 2026-11-18 – F1-07 – Spotpreise aus aWATTar (AT)
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Die Umsetzung aus der unterbrochenen Vorsession (WIP-Commit 3274fcb) wurde geprüft und abgeschlossen. `src/eeg_optimizer/sources/awattar.py` lädt die Daten in Monats-Chunks nach Ortszeit und cacht sie unter `awattar/<jahr>-<monat>`. `parse_marketdata` wirft bei Lücken, Duplikaten, Stunden außerhalb des Zeitraums, falscher Einheit oder Nicht-Stundenzeilen einen `AwattarError`. Die Stundenwerte werden über `rate_to_15min` auf 15 min wiederholt. Neu in `units` ist `eur_per_mwh_to_ct_per_kwh` (skalar und für Arrays). Fixtures: 2.7.2023 und der DST-Tag 26.3.2023. Der Network-Test für Januar 2023 ist grün (1,3 s). Die Signaturabweichung von architecture.md §4 steht im Modul-Docstring, sie ist kompatibel und braucht keinen Adapter.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - `to_15min` ist ein reiner Wrapper um `rate_to_15min`.
+  - Das erwartete 15-min-Raster wird in `load_month` lokal neu berechnet.
+  - Die Preisgrenzen im Network-Test (5–30 ct/kWh im Mittel) sind grob.
+  - Ab 1.10.2025 gibt es 15-min-Day-Ahead-Produkte. Sie werden bewusst mit Fehler abgelehnt, nur Stundenprodukte sind unterstützt.
+- Fehlertypen: signatur-abweichung
+- Nächster Schritt: `scripts/next_feature.sh`.
+
 ## 2026-11-13 – F1-06 – Haushaltslast aus HTW-Berlin-Profilen
 - Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
 - Gemacht: `src/eeg_optimizer/sources/htw.py` mit folgenden Funktionen:
@@ -113,21 +125,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
   - Cache-Dateien haben Modus 0600 (von mkstemp).
 - Fehlertypen: –
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-04 Synthetische Beispieldaten).
-
-## 2026-11-13 – F1-02 – Internes Zeitraster und Resampling
-- Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
-- Gemacht: `src/eeg_optimizer/timeseries.py` mit folgenden Funktionen:
-  - `year_index(year)`: 15-min-Raster über UTC gebaut, ergibt 35040 Intervalle, an den DST-Tagen 92/100, im Schaltjahr 35136.
-  - `hourly_energy_to_15min`: extensive Größen (`_kwh`, `_eur`, `_kg_co2`) werden durch 4 geteilt.
-  - `rate_to_15min`: Raten (`_kw`, `_ct_per_kwh`, `_g_per_kwh`) werden unverändert wiederholt.
-  - `aggregate_energy(df, sample_interval)`: summiert `_kwh`/`_kw`/`_w`-Abtastwerte zu 15-min-kWh. Unvollständige oder verschobene Intervalle, Lücken, NaN, negative Werte und doppelte oder unbekannte Spalten führen zu einem `ResampleError`.
-
-  Neu in `units.py` ist `w_to_kw`, damit die Einheitenumrechnung nur dort passiert. Tests: `tests/unit/test_timeseries.py` (inkl. DST-Tage) und `tests/property/test_timeseries_properties.py` (Energieerhalt mit Toleranz 1e-9, Viertel == Stunde/4, Raten unverändert, Aggregation 1 s bis 5 min in W).
-- Eigener Bug beim Testen gefunden: `price_ct_per_kwh` wurde in `aggregate_energy` als `_kwh` erkannt, weil die Suffixe nicht vollständig abgeglichen wurden. Behoben, ein Test sichert das ab.
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit):
-  - Hourly-Funktionen verlangen Eingang in Europe/Vienna. UTC-Quellen (PVGIS, F1-05) müssen vorher `tz_convert` aufrufen.
-  - `hourly_energy_to_15min`/`rate_to_15min` lehnen auch Nicht-Zahlen-Metadatenspalten ab (z. B. `household_id`). Diese Spalten vorher entfernen.
-  - Die Suffix-Klassifikation (extensiv/intensiv) ist eine eigene Liste neben `units.ALLOWED_SUFFIXES`. Ein Unit-Test prüft, dass sie deckungsgleich sind.
-- Fehlertypen: einheiten-suffix
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-03 Parquet-Cache).

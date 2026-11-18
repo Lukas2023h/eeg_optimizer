@@ -14,6 +14,11 @@ intervals (spec §7). EUR/MWh -> ct/kWh via :func:`units.eur_per_mwh_to_ct_per_k
 Negative prices are real and kept. A year is loaded in calendar-month chunks (local time),
 each chunk is cached separately as ``awattar/<year>-<month>``. Missing, duplicate or
 unexpected hours raise :class:`AwattarError` instead of being filled.
+
+Signature note: architecture.md §4 lists ``load_spot_prices(year, cache)``. Here ``year``
+defaults to 2023, ``cache`` is optional (default: :func:`default_cache`) and a keyword-only
+``fetch`` hook allows offline tests. Positional use ``load_spot_prices(year, cache=...)``
+stays compatible, so no adapter is needed.
 """
 
 from __future__ import annotations

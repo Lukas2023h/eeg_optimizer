@@ -236,7 +236,7 @@
       "Property-Test (hypothesis, tests/property/test_balance.py): pv = shared + export und load = shared + grid_import pro Intervall, Toleranz 1e-6; alle Werte >= 0",
       "Randfälle getestet: PV = 0, Last = 0, PV == Last"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F3-02",

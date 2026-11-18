@@ -122,6 +122,9 @@ def build_inputs(config: CommunityConfig, cache: Cache | None = None) -> Communi
 
 # balance.py
 def community_balance(pv: pd.DataFrame, loads: Mapping[str, pd.DataFrame]) -> pd.DataFrame
+# Eingang: pv genau `pv_kwh`, jede Last genau `load_kwh`, ≥ 1 Haushalt, gleicher Index, sonst BalanceInputError.
+# Ausgang (BALANCE_COLUMNS): pv_kwh, load_kwh (Summe), shared_kwh = min(pv, load),
+# export_kwh = pv − shared, grid_import_kwh = load − shared (INV-1, alle ≥ 0)
 def kpis(balance: pd.DataFrame) -> Kpis   # self_consumption_ratio, autarky_ratio, export_kwh, grid_import_kwh, shared_kwh
 
 # allocation.py

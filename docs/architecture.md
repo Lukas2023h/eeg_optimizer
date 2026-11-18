@@ -103,6 +103,8 @@ Fenster dürfen über Mitternacht gehen. Eine Aufgabe gehört zum Tag ihres Fens
 
 **HTW-Lastprofile (`sources/htw.py`):** Tjaden et al., HTW Berlin, Lizenz CC BY-NC 4.0. Geladen wird `CSV_74_Loadprofiles_1min_W_var.zip` (0,21 GB) aus dem Nextcloud-Share `https://cloud.htw-berlin.de/s/wLEKCqpAniw4TpQ` (Passwort `profile`). Die 1-s-Variante (5,4 GB) wird nicht verwendet: Die 1-min-Werte sind Mittelwerte und liefern dieselbe 15-min-Energie. Originalzeitzone ist ganzjährig MEZ (UTC+1, ohne Sommerzeit), Datenjahr 2010. Das Roharchiv liegt unter `data/raw/htw/`, alle 74 Profile werden einmal geparst und als 15-min-Frame gecacht. Wochentagsgetreu auf das Zieljahr abgebildet wird in MEZ-Tagen, Details im Modul-Docstring.
 
+**Spotpreise (`sources/awattar.py`):** `GET https://api.awattar.at/v1/marketdata?start=<ms>&end=<ms>`, ohne API-Key, Timeout 30 s. Zeitstempel sind UTC-Millisekunden (Intervallbeginn), Preise in €/MWh (EPEX Day-Ahead, Gebotszone AT). Geladen wird in Monats-Chunks nach Ortszeit, jeder Monat wird als `awattar/<jahr>-<monat>` gecacht. Die Umrechnung €/MWh → ct/kWh läuft über `units.eur_per_mwh_to_ct_per_kwh` (÷ 10), die Stundenwerte werden unverändert auf 15 min wiederholt. Negative Preise bleiben erhalten, fehlende Stunden führen zu `AwattarError`.
+
 ```python
 # sources/*: jede Quelle
 def load_pv(cfg: PvConfig, loc: Location, year: int, cache: Cache) -> pd.DataFrame        # pv_kwh

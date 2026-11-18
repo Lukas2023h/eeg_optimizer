@@ -13,9 +13,10 @@ kW <-> kWh conversion happens **only** via :func:`kw_to_kwh` / :func:`kwh_to_kw`
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Final, NewType
+from typing import Final, NewType, overload
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 KWh = NewType("KWh", float)
@@ -62,6 +63,28 @@ _W_PER_KW: Final = 1000.0
 def w_to_kw(power_w: float) -> KW:
     """Power in kilowatts from power in watts (raw source data such as 1-s profiles)."""
     return KW(power_w / _W_PER_KW)
+
+
+_CT_PER_EUR: Final = 100.0
+_KWH_PER_MWH: Final = 1000.0
+
+
+@overload
+def eur_per_mwh_to_ct_per_kwh(price_eur_per_mwh: float) -> float: ...
+@overload
+def eur_per_mwh_to_ct_per_kwh(
+    price_eur_per_mwh: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]: ...
+
+
+def eur_per_mwh_to_ct_per_kwh(
+    price_eur_per_mwh: float | npt.NDArray[np.float64],
+) -> float | npt.NDArray[np.float64]:
+    """Price in ct/kWh from a market price in EUR/MWh (100 EUR/MWh = 10 ct/kWh).
+
+    Works element-wise on numpy arrays, too. Negative prices keep their sign.
+    """
+    return price_eur_per_mwh * _CT_PER_EUR / _KWH_PER_MWH
 
 
 def _unit_suffix(column: str) -> str | None:

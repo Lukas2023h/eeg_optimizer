@@ -17,6 +17,9 @@ Arbeitsliste: `feature_list.json`. Übergabe: `progress.md`.
 | Typecheck | `.venv/bin/mypy` (strict, Konfiguration in pyproject) |
 | Harness-Regeln prüfen | `.venv/bin/python scripts/guard.py` |
 | Nächstes Feature | `scripts/next_feature.sh` |
+| Ein Feature anzeigen | `scripts/show_feature.sh [ID]` (ohne ID = nächstes) |
+| progress.md kürzen | `.venv/bin/python scripts/rotate_progress.py` (behält 5 + „Offene Punkte“, Rest nach `docs/progress_archive.md`) |
+| Wiederholte Fehlertypen | `.venv/bin/python scripts/error_tags.py` (Exit 1 = Skill `lessons-learned` nötig) |
 | Feature als bestanden markieren | `.venv/bin/python scripts/set_passes.py <ID>` (nur nach Evaluator-PASS) |
 | App manuell | `.venv/bin/streamlit run app/streamlit_app.py` → http://localhost:8501 |
 | Build | entfällt (Python, Installation per `pip install -e ".[dev]"` aus `init.sh`) |
@@ -36,7 +39,7 @@ Arbeitsliste: `feature_list.json`. Übergabe: `progress.md`.
 - **Shell (Allowlist-tauglich):** ein Befehl pro Aufruf, relativ zum Projektroot. Kein `cd`, keine absoluten Pfade, kein `&&`/`;`/`| tail`/`2>&1`. Commit-Messages ohne `<`, `>` und `|`. Dateien mit dem Read-Tool lesen. Headless gilt nur die Allowlist, alles andere wird abgelehnt.
 
 ## Session-Protokoll (immer so)
-1. **Orientieren:** `progress.md` + `git log --oneline -20` + `feature_list.json` lesen (Skill `start-session`).
+1. **Orientieren:** `progress.md` + `git log --oneline -20` lesen, Feature per `scripts/show_feature.sh` (Skill `start-session`). `feature_list.json` und `docs/progress_archive.md` nicht komplett lesen.
 2. **Zustand prüfen:** `./init.sh` + `scripts/check.sh`. Ist etwas rot, **zuerst reparieren** (Skill `debug`).
 3. **GENAU EIN Feature wählen:** niedrigste `priority`, alle `depends_on` erfüllt, bei Gleichstand die Reihenfolge in der Datei.
 4. **Umsetzen inkl. Tests** (Unit, Property für Invarianten, E2E bei UI).
@@ -54,4 +57,6 @@ Arbeitsliste: `feature_list.json`. Übergabe: `progress.md`.
 - Ein Rückfall-Block im Standardszenario (Beispielgemeinschaft 2023) ist ein Fehler, kein Detail.
 
 ## Gelernte Regeln
-<!-- Skill lessons-learned ergänzt hier je eine Zeile: - <Regel> (Grund: <Fehlertyp>, <Datum>) -->
+<!-- Skill lessons-learned ergänzt hier je eine Zeile: - [tag] <Regel> (Grund: <Fehlertyp>, <Datum>). Der [tag] muss zu den Fehlertypen in progress.md passen, scripts/error_tags.py prüft das. -->
+- [signatur-abweichung] Neue `sources/*`-Funktionen folgen der Signatur aus architecture.md §4. Fehlt die Config-Klasse noch, die Abweichung im Modul-Docstring nennen und den Adapter unter „Offene Punkte“ in progress.md eintragen. (Grund: 3× abweichende Quellen-Signatur F1-04..F1-06, 2026-11-18)
+- [einheiten-suffix] Die Einheit einer Spalte nie per einzelnem `endswith` bestimmen: immer alle erlaubten Suffixe prüfen, längster zuerst (wie `units._unit_suffix`). Dazu ein Test mit `price_ct_per_kwh` gegen `_kwh`. (Grund: Suffix-Fehler in F1-01 und F1-02, 2026-11-18)

@@ -13,4 +13,4 @@ Nie raten und nie „auf Verdacht“ ändern. Die Reihenfolge ist fest:
 4. **Regressionstest zuerst:** einen Test schreiben, der den Fehler zeigt und **jetzt rot** ist. Rot-Lauf ausführen.
 5. **Fixen:** minimal, an der Ursache und nicht am Symptom. Fehler nicht verschlucken (kein `except: pass`, kein stiller Default).
 6. **Verifizieren:** Regressionstest grün, `scripts/check.sh` grün.
-7. **Notieren:** Ursache und Fix kurz in progress.md eintragen. Ist derselbe Fehlertyp schon früher in progress.md vorgekommen, wird zusätzlich der Skill `lessons-learned` angewendet.
+7. **Notieren:** Ursache und Fix kurz in progress.md eintragen. Ist derselbe Fehlertyp schon früher in progress.md oder `docs/progress_archive.md` vorgekommen (mit dem Grep-Tool in beiden suchen), wird zusätzlich der Skill `lessons-learned` angewendet.

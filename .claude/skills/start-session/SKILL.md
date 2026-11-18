@@ -6,9 +6,9 @@ description: Session-Start für den EEG-Optimizer. Liest den Übergabe-Stand, pr
 # start-session (Session-Protokoll, Schritte 1–3)
 
 ## 1. Orientieren
-- `progress.md` lesen, mindestens die letzten 3 Einträge.
+- `progress.md` komplett lesen. Der Abschnitt **„Offene Punkte“** gilt dauerhaft: Betrifft ein Punkt das gewählte Feature, wird er mit erledigt. Die Datei enthält nur die neuesten Einträge. Ältere stehen in `docs/progress_archive.md`. Das Archiv wird **nicht** komplett gelesen, sondern gezielt mit dem Grep-Tool durchsucht, wenn ein Eintrag auf ältere Sessions verweist oder ein Fehler bekannt vorkommt.
 - `git log --oneline -20` und `git status --short` ausführen. Uncommittete Änderungen aus einer früheren Session gelten als **roter Zustand**.
-- `feature_list.json` lesen. Offen sind alle Features mit `passes: false`.
+- `feature_list.json` **nicht** komplett lesen (zu groß). Das gewählte Feature zeigt `scripts/show_feature.sh` in Schritt 3.
 
 ## 2. Zustand prüfen
 - `./init.sh` ausführen, der Befehl ist idempotent.
@@ -20,7 +20,8 @@ description: Session-Start für den EEG-Optimizer. Liest den Übergabe-Stand, pr
 Die Auswahl erfolgt deterministisch: `scripts/next_feature.sh`.
 
 - Es gewinnt die **erste** Zeile: niedrigste `priority`, alle `depends_on` erfüllt, bei Gleichstand die Reihenfolge in der Datei. Nicht davon abweichen.
-- Ausgabe an den Nutzer: `Feature: <id> – <title>` sowie die acceptance-Kriterien als Checkliste.
+- `scripts/show_feature.sh` ausführen (ohne ID = erste Zeile von next_feature.sh). Es gibt Beschreibung, Abhängigkeiten und acceptance-Kriterien als Checkliste aus. Diese Ausgabe an den Nutzer weitergeben. Einen anderen Eintrag zeigt `scripts/show_feature.sh <ID>`.
+- Den Abschnitt „Wird gebraucht von“ beachten: Bevor eine öffentliche Funktion oder ein Datenformat festgelegt wird, für die direkt abhängigen Features `scripts/show_feature.sh <ID>` ansehen, damit die Schnittstelle zu ihnen passt. Das Feature bleibt trotzdem auf seine eigenen acceptance-Kriterien begrenzt.
 - Ist das Feature zu groß für eine Session (Faustregel: mehr als ca. 300 geänderte Zeilen inkl. Tests), wird der `planner`-Subagent beauftragt, es zu zerlegen. Danach das erste Teil-Feature wählen.
 - Gibt es keinen Kandidaten mehr, dies melden und die Session beenden.
 

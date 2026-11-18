@@ -19,8 +19,9 @@ Fehlertypen allgemein benennen (`einheiten-suffix`, nicht `bug-in-timeseries`) u
 Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere Features betreffen. Erledigte Punkte löschen, neue mit Quelle `(Fx-yy)` ergänzen.
 
 **Für F2 (Konfiguration):**
-- Quellen-Signaturen weichen von architecture.md §4 ab: `load_pv(*, kwp, tilt_deg, …)`, `load_household(profile, *, year, cache, zip_path)` und die `synthetic_*`-Generatoren statt `load_pv(cfg, loc, year, cache)` / `load_household(cfg, year, cache)`. F2-03 braucht dünne Adapter auf die jetzt vorhandenen `PvConfig`/`Location`/`LoadConfig` aus `config.py`. (F1-04, F1-05, F1-06, F2-01)
-- F2-03/F2-04: Standardszenario ist `config/example_community.yaml` (HTW-Profile 1, 6, 12, 25, 46; braucht Netzwerk), offline `config/example_community_offline.yaml` (alles synthetic, gleiche IDs/PV/Tarife). (F2-02)
+- F2-04: Standardszenario ist `config/example_community.yaml` (HTW-Profile 1, 6, 12, 25, 46; braucht Netzwerk), offline `config/example_community_offline.yaml` (alles synthetic, gleiche IDs/PV/Tarife). Zeitreihen über `community.build_inputs(cfg)`. (F2-02, F2-03)
+- F8-01: `smartmeter` ist in der Config erlaubt, hat aber noch keinen Loader. `build_inputs` meldet dann `CommunitySourceError`. F8-01 trägt einen Adapter `(LoadConfig, year, cache) -> load_kwh` in `community.LOAD_SOURCES` ein. (F2-03)
+- Das Standardszenario (pvgis/htw/awattar/energy_charts) läuft durch `build_inputs` bisher nur mit gemockten Quellen. Ein echter Lauf gehört in einen Network-Test bzw. in F3/F2-04. (F2-03)
 - `HouseholdConfig.devices` sind rohe dicts. F4-01 parst und validiert sie zu typisierten Geräten. (F2-01)
 - `pv.kwp` muss > 0 sein, eine Gemeinschaft ohne PV ist nicht konfigurierbar. Bei Bedarf auf ≥ 0 lockern. (F2-01)
 
@@ -43,6 +44,16 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - `co2_g_per_kwh` ist ein Lebenszyklus-Mittel (IPCC AR5) der AT-Erzeugung ohne Importe, 2023 im Mittel 90,7 g/kWh. Die UI muss die Vereinfachung vermerken (spec §7.2). (F1-08)
 
 ---
+
+## 2026-11-18 – F2-03 – Gemeinschafts-Zeitreihen aus Konfiguration bauen
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `src/eeg_optimizer/community.py`. `build_inputs(config, cache=None)` gibt `CommunityInputs` zurück (pv, loads je Haushalts-ID in Config-Reihenfolge, prices, co2). Die Registries `PV_SOURCES`/`LOAD_SOURCES`/`PRICE_SOURCES`/`CO2_SOURCES` bilden den Quellnamen auf dünne Adapter ab (Config-dataclasses → Schlüsselwort-Signaturen der Quellen), damit ist der Adapter-Punkt aus F1-04..F1-06 erledigt. Fehlt eine Quelle, kommt `CommunitySourceError` mit Schlüsselpfad und der Liste der verfügbaren Quellen. An der Grenze wird jeder Frame geprüft: genau die kanonische Spalte, `validate_frame` und Index == `year_index(year)`. architecture.md §4 ist ergänzt. Tests: `tests/unit/test_community.py` (Offline-Build mit gesperrtem Socket, Dispatch, Erweiterbarkeit, Adapter-Argumente der Netzquellen per Mock, Grenzprüfungen) und `tests/property/test_community_properties.py` (INV-4/INV-6, Jahre 2015–2030).
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - Das Standardszenario mit echten Quellen ist nur gemockt getestet (siehe Offene Punkte).
+  - `__all__` exportiert auch die Loader-Typaliase.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F2-04).
 
 ## 2026-11-18 – F2-02 – Defaults und Beispielgemeinschaft
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -86,25 +97,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
   - Ab 1.10.2025 gibt es 15-min-Day-Ahead-Produkte. Sie werden bewusst mit Fehler abgelehnt, nur Stundenprodukte sind unterstützt.
 - Fehlertypen: signatur-abweichung
 - Nächster Schritt: `scripts/next_feature.sh`.
-
-## 2026-11-13 – F1-06 – Haushaltslast aus HTW-Berlin-Profilen
-- Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
-- Gemacht: `src/eeg_optimizer/sources/htw.py` mit folgenden Funktionen:
-  - `download_zip`: lädt `CSV_74_Loadprofiles_1min_W_var.zip` (222 837 241 Bytes) über das öffentliche WebDAV des HTW-Nextcloud-Shares `wLEKCqpAniw4TpQ` (Passwort `profile`). Der Download ist atomar, die Größe wird geprüft, das Archiv landet unter `data/raw/htw/`.
-  - `read_samples`: summiert PL1+PL2+PL3 in W und liest die Zeitstempel als feste MEZ (`Etc/GMT-1`).
-  - `aggregate_samples`: über `timeseries.aggregate_energy` von 1 min auf 15 min kWh.
-  - `map_to_year`: wochentagsgetreu über MEZ-Tage mit konstantem Versatz k ∈ −3..3 (2023 ← 2010: +2) und ±7-Tage-Umbruch an den Jahresenden. Für 2023 fallen die DST-Tage genau aufeinander.
-  - `load_all_profiles`: parst alle 74 Profile einmal und cacht sie als `htw/profiles_2010_15min`.
-  - `load_household(profile, year=2023)` liefert `load_kwh`. `check_profile` lässt nur 1..74 zu, sonst kommt ein `HtwError` mit deutscher Meldung.
-
-  URL, Lizenz (CC BY-NC 4.0), Zitation, Originalzeitzone (MEZ ganzjährig, Jahr 2010) und Abbildungsregel stehen im Modul-Docstring, Kurzfassung in architecture.md §4. Jahresverbräuche 2010: 1398,5 kWh (Profil 6) bis 8635,1 kWh (Profil 46), Profil 1 = 3238,7 kWh, auf 2023 abgebildet 3228,2 kWh. Tests: `tests/unit/test_htw.py` (Fixture-ZIP mit 2 Tagen und Profilen 1–2, Stichtag Montag, DST-Tage, Jahresende, Schaltjahr, Cache, Download-Mocks, Network-Test 146 s) und `tests/property/test_htw_properties.py`. `tests/fixtures/README.md` nennt Herkunft und Lizenz der Fixtures.
-- **Bewusste Abweichung:** Die Spec (§7.2) und die Feature-Beschreibung sagen „1 s → 15 min“, verwendet wird aber die 1-min-Variante des Datensatzes (0,21 GB statt 5,4 GB gezippt bzw. 45 GB entpackt). Laut HTW-Readme gehören beide Varianten zum selben Datensatz, die 1-min-Werte sind Mittelwerte der Sekundenwerte. Für die 15-min-Energie ist das gleichwertig, das wurde aber nicht gegen die 1-s-Daten geprüft. Spec §7.2 sollte der planner anpassen.
-- Neue Abhängigkeiten: – (requests war schon da)
-- Offene Probleme (minor/nit):
-  - Der „dokumentierte Bereich“ (`ANNUAL_KWH_MIN/MAX`, `PROFILE_1_ANNUAL_KWH`) wurde aus demselben Download berechnet, es gibt keine externe Referenz. Gegen veränderte Daten schützt die Größenprüfung des ZIPs.
-  - In anderen Jahren als 2023 können die Tage zwischen den Zeitumstellungen von Quelle und Ziel um 1 h verschoben sein (höchstens 6 Tage, z. B. 2024). Feiertage werden nicht berücksichtigt.
-  - Der erste Parse dauert ca. 5 s und braucht ca. 1 GB RAM, weil alle 74 Spalten pro Phase gelesen werden.
-  - Die Signatur `load_household(profile, *, year, cache, zip_path)` weicht von architecture.md (`LoadConfig`) ab. Für F2 braucht es einen Adapter.
-  - Die Fixture ist ein Ausschnitt öffentlicher Fremddaten (CC BY-NC), keine eigenen Verbrauchsdaten. Laut Acceptance ist das so gewollt.
-- Fehlertypen: signatur-abweichung, spec-abweichung
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-07 aWATTar).

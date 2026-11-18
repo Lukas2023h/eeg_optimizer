@@ -116,6 +116,10 @@ def load_household(cfg: LoadConfig, year: int, cache: Cache) -> pd.DataFrame    
 def load_spot_prices(year: int, cache: Cache) -> pd.DataFrame                             # spot_ct_per_kwh
 def load_co2_intensity(year: int, cache: Cache) -> pd.DataFrame                           # co2_g_per_kwh
 
+# community.py – lädt alle Quellen einer Konfiguration
+def build_inputs(config: CommunityConfig, cache: Cache | None = None) -> CommunityInputs
+# CommunityInputs(pv, loads: Mapping[household_id, DataFrame], prices, co2), gemeinsamer Index
+
 # balance.py
 def community_balance(pv: pd.DataFrame, loads: Mapping[str, pd.DataFrame]) -> pd.DataFrame
 def kpis(balance: pd.DataFrame) -> Kpis   # self_consumption_ratio, autarky_ratio, export_kwh, grid_import_kwh, shared_kwh
@@ -136,6 +140,8 @@ def costs(balance, tariffs, prices) -> CostResult
 def emissions(balance, co2) -> EmissionResult
 def compare(baseline: Scenario, optimized: Scenario) -> Comparison
 ```
+
+**Quellen-Dispatch (`community.py`):** Die Quellenmodule behalten ihre Schlüsselwort-Signaturen. `community.py` enthält dünne Adapter in der oben gezeigten Config-Form und die Registries `PV_SOURCES`, `LOAD_SOURCES`, `PRICE_SOURCES`, `CO2_SOURCES` (Quellname → Adapter). Eine neue Quelle braucht nur einen Eintrag dort (z. B. `smartmeter` in F8-01). Fehlt ein Eintrag, kommt `CommunitySourceError` mit Schlüsselpfad, z. B. `households[2].load.source: Datenquelle 'smartmeter' ist nicht verfügbar, verfügbar: htw, synthetic`. Jeder Quell-Frame muss genau seine kanonische Spalte haben, `validate_frame` bestehen und exakt `year_index(period.year)` als Index haben.
 
 Die Quellen holen über HTTP nur, wenn der Cache fehlt (`data/cache/<source>/<key>.parquet`). Unit-Tests injizieren einen Cache, der auf `tests/fixtures/` zeigt. `@pytest.mark.network` ist standardmäßig abgewählt.
 

@@ -205,7 +205,7 @@
       "Quellen-Dispatch ist erweiterbar (Registry/Mapping), unbekannte Quelle -> klare Fehlermeldung",
       "Alle Frames bestehen validate_frame"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F2-04",

@@ -1,0 +1,60 @@
+# Beispielgemeinschaft offline: gleiche Gemeinschaft wie config/example_community.yaml,
+# aber alle Zeitreihen werden synthetisch und reproduzierbar (Seed) erzeugt.
+# Braucht kein Netzwerk; gedacht für Tests, Demos ohne Internet und als Rückfall.
+# Die synthetischen Daten sind plausibel, aber nicht real; Ergebnisse nur grob vergleichbar.
+# Nicht angegebene Werte (z. B. Tarife außer eeg_type) kommen aus config/defaults.yaml.
+
+name: Beispielgemeinschaft Linz (offline)  # Anzeigename der Gemeinschaft (Text, ohne Einheit)
+
+period:                 # Betrachtungszeitraum
+  year: 2023            # Referenzjahr (ganze Zahl); alle Zeitreihen werden darauf abgebildet
+
+location:               # Standort der gemeinsamen PV-Anlage
+  lat: 48.31            # Breitengrad in Grad Nord (Linz), bestimmt den Sonnenstand
+  lon: 14.29            # Längengrad in Grad Ost (Linz), bestimmt den Sonnenstand
+
+pv:                     # Gemeinsame PV-Anlage der Gemeinschaft
+  source: synthetic     # Datenquelle: synthetic (Sonnenstand mal zufällige Bewölkung, offline)
+  kwp: 30.0             # Spitzenleistung in kWp
+  tilt_deg: 30          # Neigung in Grad (bei synthetic ohne Wirkung, zur Dokumentation)
+  azimuth_deg: 0        # Ausrichtung in Grad, 0 = Süd (bei synthetic ohne Wirkung)
+  loss_pct: 14          # Systemverluste in Prozent (bei synthetic ohne Wirkung)
+  seed: 1               # Zufalls-Seed der PV-Reihe (ganze Zahl ≥ 0, ohne Einheit)
+
+prices:                 # Spotpreise (nur für das Ziel „Kosten minimieren“)
+  source: synthetic     # Datenquelle: synthetic (Tagesgang in ct/kWh, offline)
+  seed: 1               # Zufalls-Seed der Preisreihe (ganze Zahl ≥ 0, ohne Einheit)
+
+co2:                    # CO₂-Intensität des Netzstroms
+  source: synthetic     # Datenquelle: synthetic (g CO₂/kWh mit Tagesgang, offline)
+  seed: 1               # Zufalls-Seed der CO₂-Reihe (ganze Zahl ≥ 0, ohne Einheit)
+
+tariffs:                # Tarife in ct/kWh brutto; nicht genannte Werte aus defaults.yaml (spec §7.1)
+  eeg_type: local       # Art der Energiegemeinschaft: local (Netzebene 6/7, Netzentgelt −57 %) oder regional (−28 %)
+
+households:             # Haushalte der Gemeinschaft (1 bis 15 Einträge)
+  - id: hh01            # Eindeutige Haushalts-ID (Text)
+    load:               # Grundlast des Haushalts ohne verschiebbare Geräte
+      source: synthetic # Datenquelle: synthetic (Tagesgang mit Morgen- und Abendspitze, offline)
+      annual_kwh: 3200  # Jahresverbrauch in kWh
+      seed: 1           # Zufalls-Seed des Lastprofils (ganze Zahl ≥ 0, ohne Einheit)
+  - id: hh02            # Eindeutige Haushalts-ID (Text)
+    load:               # Grundlast des Haushalts ohne verschiebbare Geräte
+      source: synthetic # Datenquelle: synthetic (Tagesgang mit Morgen- und Abendspitze, offline)
+      annual_kwh: 1400  # Jahresverbrauch in kWh (kleiner Haushalt)
+      seed: 2           # Zufalls-Seed des Lastprofils (ganze Zahl ≥ 0, ohne Einheit)
+  - id: hh03            # Eindeutige Haushalts-ID (Text)
+    load:               # Grundlast des Haushalts ohne verschiebbare Geräte
+      source: synthetic # Datenquelle: synthetic (Tagesgang mit Morgen- und Abendspitze, offline)
+      annual_kwh: 4500  # Jahresverbrauch in kWh
+      seed: 3           # Zufalls-Seed des Lastprofils (ganze Zahl ≥ 0, ohne Einheit)
+  - id: hh04            # Eindeutige Haushalts-ID (Text)
+    load:               # Grundlast des Haushalts ohne verschiebbare Geräte
+      source: synthetic # Datenquelle: synthetic (Tagesgang mit Morgen- und Abendspitze, offline)
+      annual_kwh: 2600  # Jahresverbrauch in kWh
+      seed: 4           # Zufalls-Seed des Lastprofils (ganze Zahl ≥ 0, ohne Einheit)
+  - id: hh05            # Eindeutige Haushalts-ID (Text)
+    load:               # Grundlast des Haushalts ohne verschiebbare Geräte
+      source: synthetic # Datenquelle: synthetic (Tagesgang mit Morgen- und Abendspitze, offline)
+      annual_kwh: 8600  # Jahresverbrauch in kWh (großer Haushalt)
+      seed: 5           # Zufalls-Seed des Lastprofils (ganze Zahl ≥ 0, ohne Einheit)

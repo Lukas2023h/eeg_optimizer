@@ -3,28 +3,28 @@
 # Abschnitte werden Schlüssel für Schlüssel zusammengeführt, Listen ersetzt.
 # Haushalte (households) haben keine Standardwerte und stehen immer in der Gemeinschaftsdatei.
 
-period:
+period:                 # Betrachtungszeitraum
   year: 2023            # Referenzjahr (ganze Zahl); alle Zeitreihen werden darauf abgebildet
 
-location:
+location:               # Standort der gemeinsamen PV-Anlage
   lat: 48.31            # Breitengrad der PV-Anlage in Grad Nord (Linz)
   lon: 14.29            # Längengrad der PV-Anlage in Grad Ost (Linz)
 
-pv:
+pv:                     # Gemeinsame PV-Anlage der Gemeinschaft
   source: pvgis         # Datenquelle: pvgis (PVGIS-Stundenwerte) oder synthetic (offline)
   kwp: 30.0             # Spitzenleistung der gemeinsamen Anlage in kWp (> 0)
   tilt_deg: 30          # Neigung in Grad (0 = waagrecht, 90 = senkrecht)
   azimuth_deg: 0        # Ausrichtung in Grad (0 = Süd, -90 = Ost, 90 = West; PVGIS-Konvention)
   loss_pct: 14          # Systemverluste in Prozent (PVGIS-Standard 14 %)
-  seed: 0               # Zufalls-Seed, nur für source: synthetic
+  seed: 0               # Zufalls-Seed (ganze Zahl ≥ 0, ohne Einheit), nur für source: synthetic
 
-prices:
+prices:                 # Spotpreise in ct/kWh (nur für das Ziel „Kosten minimieren“)
   source: awattar       # Spotpreise: awattar (EPEX Day-Ahead AT) oder synthetic (offline)
-  seed: 0               # Zufalls-Seed, nur für source: synthetic
+  seed: 0               # Zufalls-Seed (ganze Zahl ≥ 0, ohne Einheit), nur für source: synthetic
 
-co2:
+co2:                    # CO₂-Intensität des Netzstroms in g CO₂/kWh
   source: energy_charts # CO₂-Intensität in g/kWh: energy_charts (AT-Erzeugungsmix) oder synthetic
-  seed: 0               # Zufalls-Seed, nur für source: synthetic
+  seed: 0               # Zufalls-Seed (ganze Zahl ≥ 0, ohne Einheit), nur für source: synthetic
 
 tariffs:                # Alle Preise in ct/kWh, brutto inkl. 20 % USt (spec §7.1)
   eeg_type: local       # local (Netzebene 6/7) oder regional
@@ -37,9 +37,9 @@ tariffs:                # Alle Preise in ct/kWh, brutto inkl. 20 % USt (spec §7
   grid_fee_reduction: null  # Ermäßigung auf grid_fee_energy für interne kWh (Anteil 0–1);
                             # null = aus eeg_type (local 0.57, regional 0.28)
 
-allocation:
+allocation:             # Aufteilung der gemeinsam genutzten Energie (kWh) auf die Haushalte
   strategy: dynamic_proportional  # Verteilschlüssel: anteilig zum Verbrauch im Intervall
 
-optimization:
+optimization:           # Einplanung der verschiebbaren Verbraucher
   objective: max_shared # Ziel: max_shared (gemeinsam genutzte kWh), min_cost (€) oder min_co2 (kg CO₂)
   solver: milp          # Verfahren: milp (exakt) oder greedy (Heuristik)

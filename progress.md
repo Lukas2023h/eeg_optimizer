@@ -20,7 +20,7 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 
 **Für F2 (Konfiguration):**
 - Quellen-Signaturen weichen von architecture.md §4 ab: `load_pv(*, kwp, tilt_deg, …)`, `load_household(profile, *, year, cache, zip_path)` und die `synthetic_*`-Generatoren statt `load_pv(cfg, loc, year, cache)` / `load_household(cfg, year, cache)`. F2-03 braucht dünne Adapter auf die jetzt vorhandenen `PvConfig`/`Location`/`LoadConfig` aus `config.py`. (F1-04, F1-05, F1-06, F2-01)
-- `config/defaults.yaml` existiert schon (Werte aus spec §7.1, Kommentare mit Einheit). F2-02 prüft nur noch die Zahlen per Test und ergänzt die Beispieldateien. (F2-01)
+- F2-03/F2-04: Standardszenario ist `config/example_community.yaml` (HTW-Profile 1, 6, 12, 25, 46; braucht Netzwerk), offline `config/example_community_offline.yaml` (alles synthetic, gleiche IDs/PV/Tarife). (F2-02)
 - `HouseholdConfig.devices` sind rohe dicts. F4-01 parst und validiert sie zu typisierten Geräten. (F2-01)
 - `pv.kwp` muss > 0 sein, eine Gemeinschaft ohne PV ist nicht konfigurierbar. Bei Bedarf auf ≥ 0 lockern. (F2-01)
 
@@ -43,6 +43,16 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - `co2_g_per_kwh` ist ein Lebenszyklus-Mittel (IPCC AR5) der AT-Erzeugung ohne Importe, 2023 im Mittel 90,7 g/kWh. Die UI muss die Vereinfachung vermerken (spec §7.2). (F1-08)
 
 ---
+
+## 2026-11-18 – F2-02 – Defaults und Beispielgemeinschaft
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `config/example_community.yaml` (5 Haushalte, Linz, 2023, 30 kWp, PVGIS/HTW/aWATTar/Energy-Charts) und `config/example_community_offline.yaml` (gleiche Gemeinschaft, alle Quellen synthetic mit Seeds und `annual_kwh`). `defaults.yaml` bekam Kommentare für die Abschnitte und Seeds. Tests: `tests/unit/test_example_configs.py` (Laden beider Dateien, Tarife gegen die geparste Tabelle aus spec §7.1 und gegen fest notierte Zahlen, Offline-Reihen mit gesperrtem Socket, jeder Schlüssel mit deutschem Kommentar, Zahlen mit Einheitshinweis).
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - Der Einheiten-Test ist eine Heuristik (Stichwörter wie „Grad“, „ganze Zahl“) und erkennt keine falsche Einheit.
+  - Die Jahresverbräuche in den Kommentaren der HTW-Profile (ca. 1 400 / 3 230 / 8 600 kWh) stammen aus F1-06 und sind nicht per Test geprüft; die Offline-`annual_kwh` sind nur grob daran angelehnt.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F2-03).
 
 ## 2026-11-18 – F2-01 – Konfigurationsmodell und YAML-Loader
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -98,21 +108,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
   - Die Fixture ist ein Ausschnitt öffentlicher Fremddaten (CC BY-NC), keine eigenen Verbrauchsdaten. Laut Acceptance ist das so gewollt.
 - Fehlertypen: signatur-abweichung, spec-abweichung
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-07 aWATTar).
-
-## 2026-11-13 – F1-05 – PV-Erzeugung aus PVGIS
-- Ergebnis: PASS (Evaluator 2× PASS, vor und nach den Reviewer-Fixes; Reviewer OK)
-- Gemacht: `src/eeg_optimizer/sources/pvgis.py` mit folgenden Funktionen:
-  - `hourly_to_15min(raw)`: PVGIS-Stundenwerte (UTC, Stempel `HH:10` liegt **innerhalb** der Stunde, `P` = mittlere Leistung in W) werden auf den Stundenbeginn abgerundet. Danach W → kWh über `units`, Umrechnung nach Europe/Vienna, gleichmäßig auf 4 Viertelstunden verteilt. Uneinheitliche Minuten-Versätze, NaN/inf/negativ und Lücken führen zu einem Fehler. Die Konvention steht im Modul-Docstring.
-  - `map_to_year(frame, year)`: Das PVGIS-Jahr ist ein UTC-Jahr. Die letzte UTC-Stunde (31.12. 23:00 UTC, Nacht) wird an den Anfang des Wiener Jahres verschoben, die Jahressumme bleibt erhalten.
-  - `load_pv(*, kwp, tilt_deg, azimuth_deg, latitude_deg, longitude_deg, year=2023, loss_pct=14, cache=None)`: azimuth 0 = Süd (PVGIS-Konvention), an pvlib geht er als +180. Die Parameter werden vor dem Request geprüft. Gecacht wird der fertige 15-min-Frame, der Key enthält die exakten Parameterwerte. Bei einem Cache-Hit werden Spalte und Jahresindex geprüft. Der HTTP-Timeout ist explizit (60 s).
-  - Fixture `tests/fixtures/pvgis_linz_10kwp_30deg_south_2023-06-20_3d.json` (echte PVGIS-Antwort, gekürzt auf 72 h). Tests: `tests/unit/test_pvgis.py` (Fixture, Mock auf pvlib- und auf requests-Ebene, Cache, Fehlerpfade, Network-Test) und `tests/property/test_pvgis_properties.py`.
-  - Real-API: Linz, 10 kWp, 30°, Süd, 2023 ergibt 11 281,7 kWh.
-- Neue Abhängigkeiten: – (pvlib war schon deklariert)
-- Offene Probleme (minor/nit):
-  - Signatur weicht von architecture.md (`load_pv(cfg, loc, year, cache)`) ab, weil PvConfig/Location erst mit F2 kommen. Dann braucht es einen dünnen Adapter.
-  - `map_to_year` setzt für 1.1. 00:00–01:00 lokal die Nachtstunde 31.12. 23:00 UTC desselben Datenjahres ein. Bei österreichischen Breiten ist das harmlos (PV = 0), in spec §7 aber nicht erwähnt.
-  - Azimuth `-0.0` und `0.0` erzeugen verschiedene Cache-Keys, das kostet höchstens einen zusätzlichen Download.
-  - Der Fixture wurde mit `components=1` aufgenommen, der Code fragt `components=False` ab. Für die Spalte `P` ist das ohne Wirkung.
-  - Verfügbare PVGIS-Jahre (SARAH3) reichen bis 2023. Spätere Jahre scheitern mit einem HTTP-Fehler von PVGIS, es gibt keinen Rückfall.
-- Fehlertypen: signatur-abweichung
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F1-06 HTW-Lastprofile).

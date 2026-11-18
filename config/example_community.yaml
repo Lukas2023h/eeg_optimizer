@@ -1,0 +1,53 @@
+# Beispielgemeinschaft: Standardszenario des EEG-Optimizers (spec §6, §7).
+# 5 Haushalte in Linz, gemeinsame PV-Anlage mit 30 kWp, Referenzjahr 2023.
+# Daten aus dem Internet: PV von PVGIS, Lasten aus den HTW-Berlin-Profilen,
+# Spotpreise von aWATTar, CO₂-Intensität von Energy-Charts.
+# Nicht angegebene Werte (z. B. Tarife außer eeg_type) kommen aus config/defaults.yaml.
+# Ohne Netzwerk: config/example_community_offline.yaml verwenden.
+
+name: Beispielgemeinschaft Linz  # Anzeigename der Gemeinschaft (Text, ohne Einheit)
+
+period:                 # Betrachtungszeitraum
+  year: 2023            # Referenzjahr (ganze Zahl); alle Zeitreihen werden darauf abgebildet
+
+location:               # Standort der gemeinsamen PV-Anlage
+  lat: 48.31            # Breitengrad in Grad Nord (Linz)
+  lon: 14.29            # Längengrad in Grad Ost (Linz)
+
+pv:                     # Gemeinsame PV-Anlage der Gemeinschaft
+  source: pvgis         # Datenquelle: pvgis (PVGIS-Stundenwerte, braucht Netzwerk)
+  kwp: 30.0             # Spitzenleistung in kWp
+  tilt_deg: 30          # Neigung in Grad (0 = waagrecht, 90 = senkrecht)
+  azimuth_deg: 0        # Ausrichtung in Grad (0 = Süd, -90 = Ost, 90 = West)
+  loss_pct: 14          # Systemverluste in Prozent
+
+prices:                 # Spotpreise (nur für das Ziel „Kosten minimieren“)
+  source: awattar       # Datenquelle: awattar (EPEX Day-Ahead AT, in ct/kWh umgerechnet)
+
+co2:                    # CO₂-Intensität des Netzstroms
+  source: energy_charts # Datenquelle: energy_charts (AT-Erzeugungsmix, g CO₂/kWh)
+
+tariffs:                # Tarife in ct/kWh brutto; nicht genannte Werte aus defaults.yaml (spec §7.1)
+  eeg_type: local       # Art der Energiegemeinschaft: local (Netzebene 6/7, Netzentgelt −57 %) oder regional (−28 %)
+
+households:             # Haushalte der Gemeinschaft (1 bis 15 Einträge)
+  - id: hh01            # Eindeutige Haushalts-ID (Text)
+    load:               # Grundlast des Haushalts ohne verschiebbare Geräte
+      source: htw       # Datenquelle: htw (HTW-Berlin-Lastprofil, 15-min-Energie in kWh)
+      profile: 1        # HTW-Profilnummer 1–74 (ganze Zahl), ca. 3 230 kWh/Jahr
+  - id: hh02            # Eindeutige Haushalts-ID (Text)
+    load:               # Grundlast des Haushalts ohne verschiebbare Geräte
+      source: htw       # Datenquelle: htw (HTW-Berlin-Lastprofil, 15-min-Energie in kWh)
+      profile: 6        # HTW-Profilnummer 1–74 (ganze Zahl), kleiner Haushalt, ca. 1 400 kWh/Jahr
+  - id: hh03            # Eindeutige Haushalts-ID (Text)
+    load:               # Grundlast des Haushalts ohne verschiebbare Geräte
+      source: htw       # Datenquelle: htw (HTW-Berlin-Lastprofil, 15-min-Energie in kWh)
+      profile: 12       # HTW-Profilnummer 1–74 (ganze Zahl)
+  - id: hh04            # Eindeutige Haushalts-ID (Text)
+    load:               # Grundlast des Haushalts ohne verschiebbare Geräte
+      source: htw       # Datenquelle: htw (HTW-Berlin-Lastprofil, 15-min-Energie in kWh)
+      profile: 25       # HTW-Profilnummer 1–74 (ganze Zahl)
+  - id: hh05            # Eindeutige Haushalts-ID (Text)
+    load:               # Grundlast des Haushalts ohne verschiebbare Geräte
+      source: htw       # Datenquelle: htw (HTW-Berlin-Lastprofil, 15-min-Energie in kWh)
+      profile: 46       # HTW-Profilnummer 1–74 (ganze Zahl), großer Haushalt, ca. 8 600 kWh/Jahr

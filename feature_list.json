@@ -189,7 +189,7 @@
       "config/example_community_offline.yaml nutzt source: synthetic und lädt ohne Netzwerk",
       "Kommentare in den YAML-Dateien erklären jeden Parameter auf Deutsch inkl. Einheit"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F2-03",

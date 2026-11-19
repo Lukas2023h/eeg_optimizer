@@ -147,7 +147,18 @@ def strategy_for(config: AllocationConfig) -> AllocationStrategy   # Registry ST
 # INV-7: community_totals(result).shared_kwh == balance.shared_kwh pro Intervall (dito grid_import, Toleranz 1e-6).
 
 # devices.py
-def baseline_schedule(device: Device, index: pd.DatetimeIndex) -> pd.Series   # device_kwh
+Device = ModulatingDevice | ProgramDevice   # frozen dataclasses, Feld `kind`, Property `energy_kwh_per_day: KWh`, `needs_binaries`
+# ModulatingDevice(id, power_kw: KW, energy_kwh_per_day: KWh, window: TimeWindow, baseline_start: time,
+#                  min_run_min: int | None, min_power_kw: KW | None)
+# ProgramDevice(id, power_kw: KW, duration_min: int, window, baseline_start)   # Energie = power_kw · Dauer
+# TimeWindow(start, end): [start, end), crosses_midnight (end <= start), duration, contains(t), remaining_after(t)
+def parse_devices(raw, path="devices") -> tuple[Device, ...]   # ConfigError mit Schlüsselpfad
+def devices_for(config: CommunityConfig) -> dict[str, tuple[Device, ...]]   # je household_id, Config-Reihenfolge
+# Uhrzeiten "HH:MM" (Text) auf dem 15-min-Raster, Dauern Vielfache von 15 min, start == end ist ein Fehler.
+# Geprüft: Energie mit power_kw im Fenster und ab baseline_start bis Fensterende erreichbar
+# (Programm: Dauer passt ab baseline_start), baseline_start im Fenster, min_power_kw ≤ power_kw,
+# min_run_min ≤ Fensterlänge, Geräte-IDs je Haushalt eindeutig.
+def baseline_schedule(device: Device, index: pd.DatetimeIndex) -> pd.Series   # device_kwh (F4-02)
 
 # optimize/runner.py
 def optimize(inputs: OptimizationInputs, objective: Objective, solver: Literal["milp","greedy"]) -> Schedule

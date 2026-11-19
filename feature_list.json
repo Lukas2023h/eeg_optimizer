@@ -334,7 +334,7 @@
       "Validierung: Energie im Fenster mit power_kw nicht erreichbar -> ConfigError; min_power_kw > power_kw -> Fehler; baseline_start außerhalb des Fensters -> Fehler (je ein Test)",
       "Fenster 18:00–07:00 wird korrekt als über Mitternacht erkannt (Test)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F4-02",

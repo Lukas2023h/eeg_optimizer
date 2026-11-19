@@ -438,6 +438,14 @@ class _Section:
             )
         return value
 
+    def optional_integer(
+        self, key: str, *, minimum: int | None = None, maximum: int | None = None
+    ) -> int | None:
+        if not self.has(key):
+            self._used.add(key)
+            return None
+        return self.integer(key, minimum=minimum, maximum=maximum)
+
     def optional_seed(self) -> int:
         """Optional ``seed`` (integer ≥ 0, default 0; only used by synthetic sources)."""
         if not self.has("seed"):
@@ -456,6 +464,11 @@ class _Section:
             raise ConfigError(
                 f"{self.path or 'Konfiguration'}: unbekannte Schlüssel {', '.join(unknown)}"
             )
+
+
+ConfigSection = _Section
+"""Public name of the section reader for modules that validate their own sub-mappings
+(``devices.py``), so messages and the unknown-key check stay identical."""
 
 
 # --------------------------------------------------------------------------- saving
@@ -562,6 +575,7 @@ __all__ = [
     "AllocationConfig",
     "CommunityConfig",
     "ConfigError",
+    "ConfigSection",
     "HouseholdConfig",
     "LoadConfig",
     "Location",

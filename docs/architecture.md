@@ -162,7 +162,14 @@ def costs(balance, allocation, tariffs: TariffConfig, prices: pd.DataFrame | Non
 # community_eur: Eur (Summe); households = Tabelle, Index household_id (Reihenfolge der Allocation),
 # Spalten grid_import_cost_eur, shared_cost_eur (shared_h × interner Preis inkl. ermäßigtem Netzentgelt und Abgaben),
 # cost_eur; household_eur(hh) -> Eur. Fehler: CostInputError (Spalten, Index, Allocation passt nicht, Toleranz 1e-6 kWh).
-def emissions(balance, co2) -> EmissionResult
+def emissions(balance, allocation, co2: pd.DataFrame) -> EmissionResult
+# emissions_kg_co2 = grid_import_kwh × co2_g_per_kwh / 1000 pro Intervall (g → kg nur über units.g_to_kg_co2);
+# PV (shared und Export) zählt mit 0 g/kWh, Export ohne Gutschrift. co2 = genau `co2_g_per_kwh` (≥ 0) auf dem
+# Index der Balance. EmissionResult (frozen): community = Frame pro Intervall mit `emissions_kg_co2`,
+# community_kg_co2: KgCO2 (Summe); households = Tabelle, Index household_id, Spalte `emissions_kg_co2`
+# (grid_import_h × co2 je Intervall, Summe == Gemeinschaft dank INV-7); household_kg_co2(hh) -> KgCO2.
+# Vermiedene kg CO₂ = Differenz zweier Ergebnisse (F6-01). Fehler: EmissionInputError (Spalten, Index,
+# negative Intensität, Allocation passt nicht, Toleranz 1e-6 kWh).
 def compare(baseline: Scenario, optimized: Scenario) -> Comparison
 ```
 

@@ -53,10 +53,20 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 
 - F3-06/F5-01/F6-01: `economics.costs(balance, allocation, tariffs, prices=None)` liefert `CostResult` (Gemeinschaft pro Intervall `community_cost_eur` usw., `community_eur`, Tabelle `households` mit `cost_eur`, `household_eur(hh)`). `prices=None` ist der fixe Tarif, `CommunityInputs.prices` der Spot-Tarif (Ziel min_cost). `value_shared_ct_per_kwh` gilt nur für den fixen Tarif. Die Haushaltssicht summiert sich bewusst **nicht** zur Gemeinschaftssicht (interner Preis vs. Gemeinschaftskosten). Cent → € nur über `units.ct_to_eur`. (F3-04)
 
+- F3-06/F5-01/F6-01: `economics.emissions(balance, allocation, co2)` liefert `EmissionResult` (`community` pro Intervall mit `emissions_kg_co2`, `community_kg_co2: KgCO2`, Tabelle `households` mit `emissions_kg_co2`, `household_kg_co2(hh)`). `co2` = `CommunityInputs.co2`. Vermiedene kg = Baseline − optimiert. g → kg nur über `units.g_to_kg_co2`. Die UI muss die CO₂-Vereinfachung vermerken (siehe F1-08 oben). (F3-05)
+
 **Für den planner (Spec anpassen):**
 - INV-4: Aggregierte Kennzahl-Tabellen tragen dimensionslose Anteile mit dem Suffix `_ratio` (architecture.md §3.1). In spec §5 und CLAUDE.md „Einheiten“ ist das noch nicht nachgezogen, `units.ALLOWED_SUFFIXES` kennt `_ratio` nicht (Zeitreihen brauchen es nicht). (F3-02)
 
 ---
+
+## 2026-11-19 – F3-05 – CO2-Bilanz
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `economics.emissions(balance, allocation, co2) -> EmissionResult`. Emissionen = grid_import_kwh × co2_g_per_kwh / 1000 kg, PV mit 0 g/kWh. Ausgewiesen werden die Gemeinschaft pro Intervall und Summe sowie jeder Haushalt über seinen grid_import aus der Allocation. Die Eingänge werden geprüft (Spalte, Index, negative Intensität → `EmissionInputError`, NaN → `FrameValidationError`, Allocation passt nicht). Die Eingangsprüfung ist von `costs` übernommen und erhält jetzt die Fehlerklasse als Parameter. Neu ist `units.g_to_kg_co2`. Die Spaltenkonstante kommt aus `community.CO2_COLUMN`, es gibt kein Duplikat. Tests: `tests/unit/test_emissions.py` (handgerechnetes Mini-Beispiel gesamt und je Haushalt, nur PV, ganzes Jahr, Fehlerfälle) und `tests/property/test_emissions.py` (Formel, Haushalte = Gemeinschaft, mehr PV → nie mehr CO₂). architecture.md §4 ist ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (nit): Statt des `error`-Parameters in `_check_balance`/`_household_frames` wäre eine gemeinsame Basisklasse `EconomicsInputError` sauberer. Die Signatur weicht von der Skizze `emissions(balance, co2)` ab, weil die Haushaltssicht die Allocation braucht; architecture.md ist angepasst.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F3-06).
 
 ## 2026-11-18 – F3-04 – Kostenmodell (€)
 - Ergebnis: PASS (Evaluator PASS ×2, Reviewer-Major behoben)
@@ -87,17 +97,5 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Gemacht: `src/eeg_optimizer/balance.py` mit `community_balance(pv, loads)`: shared = min(pv, Summe Last), export = pv − shared, grid_import = Last − shared. Die Eingänge werden geprüft (genau eine kanonische Spalte, `validate_frame`, gleicher Index, ≥ 1 Haushalt, sonst `BalanceInputError`), der Ausgang ebenfalls per `validate_frame`. Tests: `tests/unit/test_balance.py` (Werte, PV = 0, Last = 0, PV == Last, ganzes Jahr mit Zeitumstellung, Fehlerfälle) und `tests/property/test_balance.py` (INV-1 mit Toleranz 1e-6, alle Werte ≥ 0, 1–15 Haushalte). architecture.md §4 ist ergänzt.
 - Neue Abhängigkeiten: –
 - Offene Probleme (nit): `test_columns_and_values` vergleicht exakt und braucht deshalb dyadische Testwerte.
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh`.
-
-## 2026-11-18 – F2-04 – UI: Konfigurationsseite
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: `src/eeg_optimizer/config_store.py` (ohne Streamlit) bietet `available_configs`, `apply_edits` (validiert nur über `parse_config`), `resize_households`, `save_user_config` nach `data/configs/<name>.yaml` mit sicherem Dateinamen und Session-State-Schlüssel. Neue Seite `app/pages/configuration.py` (`/konfiguration`) mit Dateiauswahl, Name, PV (kWp/Neigung/Ausrichtung), EEG-Typ, Tarifen, Anzahl Haushalte und Lastprofil je Haushalt sowie den Knöpfen „Übernehmen“ (nur Session State) und „Speichern“. Fehler erscheinen als deutsche `st.error`-Meldung, die letzte gültige Konfiguration bleibt aktiv. Tests: `tests/unit/test_config_store.py`, `tests/unit/test_configuration_page.py` (Streamlit-AppTest, Session State) und `tests/e2e/test_configuration_page.py` (kWp 20 speichern, kWp negativ, Seitenwechsel, Haushaltsanzahl). Ergänzt ist architecture.md §6. Die Reviewer-Minors „MAX_HOUSEHOLDS hart codiert“ und „`_on_select` bei gelöschter Datei“ sind behoben.
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit):
-  - „Speichern“ überschreibt eine vorhandene Datei gleichen Namens ohne Hinweis.
-  - `_collect_edits` ist ca. 50 Zeilen lang, bei der nächsten Änderung (F4-04) PV- und Tarif-Teil auslagern.
-  - Für „Speichern“ gibt es keinen AppTest, nur E2E.
-  - Jahr, Standort, Quellen von PV/Preis/CO₂ und Seeds sind in der UI nicht editierbar (nicht gefordert).
 - Fehlertypen: –
 - Nächster Schritt: `scripts/next_feature.sh`.

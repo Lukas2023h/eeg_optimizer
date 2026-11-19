@@ -100,6 +100,22 @@ def ct_to_eur(amount_ct: float | npt.NDArray[np.float64]) -> Eur | npt.NDArray[n
     return Eur(amount_ct / _CT_PER_EUR)
 
 
+_G_PER_KG: Final = 1000.0
+
+
+@overload
+def g_to_kg_co2(amount_g: float) -> KgCO2: ...
+@overload
+def g_to_kg_co2(amount_g: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]: ...
+
+
+def g_to_kg_co2(amount_g: float | npt.NDArray[np.float64]) -> KgCO2 | npt.NDArray[np.float64]:
+    """Emissions in kg CO2e from grams (1000 g = 1 kg), element-wise on arrays."""
+    if isinstance(amount_g, np.ndarray):
+        return amount_g / _G_PER_KG
+    return KgCO2(amount_g / _G_PER_KG)
+
+
 def _unit_suffix(column: str) -> str | None:
     # Longest match first: "_ct_per_kwh" also ends with "_kwh".
     for suffix in sorted(ALLOWED_SUFFIXES, key=len, reverse=True):

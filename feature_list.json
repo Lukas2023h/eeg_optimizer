@@ -298,7 +298,7 @@
       "emissions() = Σ grid_import_kwh × co2_g_per_kwh / 1000 in kg (Test mit Mini-Beispiel)",
       "Ergebnis gesamt und je Haushalt (über Verteilschlüssel), Spalten _kg_co2"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F3-06",

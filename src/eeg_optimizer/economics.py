@@ -1,4 +1,4 @@
-"""Cost model in euros for the community and its households (F3-04, spec §7.1).
+"""Cost model in euros (F3-04, spec §7.1) and CO2 balance (F3-05, :func:`emissions`).
 
 All tariffs are gross prices in ct/kWh (:class:`config.TariffConfig`). With
 ``reduced_grid_fee = grid_fee_energy * (1 - grid_fee_reduction)``:
@@ -55,8 +55,9 @@ from eeg_optimizer.balance import (
     GRID_IMPORT_COLUMN,
     SHARED_COLUMN,
 )
+from eeg_optimizer.community import CO2_COLUMN
 from eeg_optimizer.config import TariffConfig
-from eeg_optimizer.units import Eur, ct_to_eur, validate_frame
+from eeg_optimizer.units import Eur, KgCO2, ct_to_eur, g_to_kg_co2, validate_frame
 
 SPOT_COLUMN: Final = "spot_ct_per_kwh"
 """Column of the spot price frame (``CommunityInputs.prices``)."""
@@ -148,21 +149,23 @@ def _energy_price_ct_per_kwh(
     return prices[SPOT_COLUMN].to_numpy(dtype=float) + tariffs.spot_markup
 
 
-def _check_balance(balance: pd.DataFrame) -> None:
+def _check_balance(balance: pd.DataFrame, error: type[ValueError] = CostInputError) -> None:
     missing = [c for c in BALANCE_COLUMNS if c not in balance.columns]
     if missing:
-        raise CostInputError(
-            f"balance is missing column(s) {missing}; use balance.community_balance"
-        )
+        raise error(f"balance is missing column(s) {missing}; use balance.community_balance")
     validate_frame(balance)
 
 
-def _household_frames(allocation: pd.DataFrame, balance: pd.DataFrame) -> dict[str, pd.DataFrame]:
+def _household_frames(
+    allocation: pd.DataFrame,
+    balance: pd.DataFrame,
+    error: type[ValueError] = CostInputError,
+) -> dict[str, pd.DataFrame]:
     """Validated flat frame per household; the shares add up to the balance (INV-7)."""
     if not allocation.index.equals(balance.index):
-        raise CostInputError("allocation has a different index than the balance")
+        raise error("allocation has a different index than the balance")
     if list(allocation.columns.names) != list(COLUMN_LEVELS):
-        raise CostInputError(
+        raise error(
             f"allocation must have the column levels {list(COLUMN_LEVELS)}, "
             f"got {list(allocation.columns.names)}; use an allocation strategy"
         )
@@ -171,15 +174,13 @@ def _household_frames(allocation: pd.DataFrame, balance: pd.DataFrame) -> dict[s
         quantities = set(allocation[household_id].columns)
         missing = [c for c in HOUSEHOLD_COLUMNS if c not in quantities]
         if missing:
-            raise CostInputError(
-                f"allocation of household {household_id!r} is missing column(s) {missing}"
-            )
+            raise error(f"allocation of household {household_id!r} is missing column(s) {missing}")
         frame = household_frame(allocation, household_id)
         # Rejects NaN/inf and negative energies, which would otherwise yield NaN costs.
         validate_frame(frame)
         frames[household_id] = frame
     if not frames:
-        raise CostInputError("allocation has no households")
+        raise error("allocation has no households")
 
     for column in (SHARED_COLUMN, GRID_IMPORT_COLUMN):
         total = np.zeros(len(balance.index), dtype=float)
@@ -189,7 +190,7 @@ def _household_frames(allocation: pd.DataFrame, balance: pd.DataFrame) -> dict[s
         bad = deviation > CONSISTENCY_TOLERANCE_KWH
         if bad.any():
             first = balance.index[int(np.flatnonzero(bad)[0])]
-            raise CostInputError(
+            raise error(
                 f"allocation does not fit the balance: sum of household {column} differs in "
                 f"{int(bad.sum())} interval(s), first at {first.isoformat()}"
             )
@@ -268,9 +269,112 @@ def costs(
     )
 
 
+# --- CO2 balance (F3-05) -------------------------------------------------------------------
+
+CO2_INTENSITY_COLUMN: Final = CO2_COLUMN
+"""Column of the grid carbon intensity frame (``CommunityInputs.co2``)."""
+
+EMISSIONS_COLUMN: Final = "emissions_kg_co2"
+"""Emissions of the grid import, per interval in :attr:`EmissionResult.community` and as total
+per household in :attr:`EmissionResult.households`."""
+
+
+class EmissionInputError(ValueError):
+    """Balance, allocation or carbon intensity are missing columns or do not fit together."""
+
+
+@dataclass(frozen=True)
+class EmissionResult:
+    """Emissions of the grid import of one scenario, community and per household."""
+
+    community: pd.DataFrame
+    """Per interval, column :data:`EMISSIONS_COLUMN` (``grid_import_kwh * co2 / 1000``)."""
+    community_kg_co2: KgCO2
+    """Total over the whole period (sum of :attr:`community`)."""
+    households: pd.DataFrame
+    """Totals over the period: index ``household_id`` in allocation order, column
+    :data:`EMISSIONS_COLUMN`. Sums up to :attr:`community_kg_co2` (INV-7 of the allocation)."""
+
+    def household_kg_co2(self, household_id: str) -> KgCO2:
+        """Total emissions of the grid import of one household.
+
+        Raises:
+            KeyError: ``household_id`` is not part of the result.
+        """
+        per_household = self.households[EMISSIONS_COLUMN].to_dict()
+        if household_id not in per_household:
+            raise KeyError(f"household {household_id!r} is not part of the emission result")
+        return KgCO2(float(per_household[household_id]))
+
+
+def _co2_intensity_g_per_kwh(co2: pd.DataFrame, index: pd.DatetimeIndex) -> npt.NDArray[np.float64]:
+    if list(co2.columns) != [CO2_INTENSITY_COLUMN]:
+        raise EmissionInputError(
+            f"co2 must have exactly the column {CO2_INTENSITY_COLUMN!r}, "
+            f"got {[str(c) for c in co2.columns]}"
+        )
+    validate_frame(co2)
+    if not co2.index.equals(index):
+        raise EmissionInputError("co2 has a different index than the balance")
+    intensity = co2[CO2_INTENSITY_COLUMN].to_numpy(dtype=float)
+    negative = intensity < 0
+    if negative.any():
+        first = index[int(np.flatnonzero(negative)[0])]
+        raise EmissionInputError(
+            f"co2 intensity is negative in {int(negative.sum())} interval(s), "
+            f"first at {first.isoformat()}"
+        )
+    return intensity
+
+
+def emissions(balance: pd.DataFrame, allocation: pd.DataFrame, co2: pd.DataFrame) -> EmissionResult:
+    """CO2 emissions of the grid import (spec §7.2), community and per household.
+
+    ``emissions = grid_import_kwh * co2_g_per_kwh / 1000`` per interval in kg CO2e. PV (shared
+    and exported) counts with 0 g/kWh; exports earn no credit. A household's share follows
+    its ``grid_import_kwh`` from the allocation, weighted with the intensity of the interval.
+    The avoided emissions of a scenario are the difference of two results (F6-01).
+
+    Args:
+        balance: Output of :func:`balance.community_balance`.
+        allocation: Output of an :class:`allocation.AllocationStrategy` for this balance.
+        co2: Frame with exactly ``co2_g_per_kwh`` (≥ 0) on the index of ``balance``.
+
+    Raises:
+        EmissionInputError: missing balance columns, wrong co2 column, differing indices,
+            negative intensity, or an allocation that does not fit the balance (1e-6 kWh).
+        units.FrameValidationError: an input violates the internal time series format.
+    """
+    _check_balance(balance, EmissionInputError)
+    index = pd.DatetimeIndex(balance.index)
+    intensity = _co2_intensity_g_per_kwh(co2, index)
+    household_frames = _household_frames(allocation, balance, EmissionInputError)
+
+    per_interval = g_to_kg_co2(balance[GRID_IMPORT_COLUMN].to_numpy(dtype=float) * intensity)
+    community = pd.DataFrame({EMISSIONS_COLUMN: per_interval}, index=index)
+    validate_frame(community)
+
+    rows = {
+        household_id: float(
+            g_to_kg_co2(frame[GRID_IMPORT_COLUMN].to_numpy(dtype=float) * intensity).sum()
+        )
+        for household_id, frame in household_frames.items()
+    }
+    households = pd.DataFrame({EMISSIONS_COLUMN: pd.Series(rows, dtype=float)})
+    households.index.name = "household_id"
+
+    return EmissionResult(
+        community=community,
+        community_kg_co2=KgCO2(float(per_interval.sum())),
+        households=households,
+    )
+
+
 __all__ = [
+    "CO2_INTENSITY_COLUMN",
     "COMMUNITY_COST_COLUMN",
     "COMMUNITY_COST_COLUMNS",
+    "EMISSIONS_COLUMN",
     "EXPORT_REVENUE_COLUMN",
     "GRID_IMPORT_COST_COLUMN",
     "HOUSEHOLD_COST_COLUMN",
@@ -279,8 +383,11 @@ __all__ = [
     "SPOT_COLUMN",
     "CostInputError",
     "CostResult",
+    "EmissionInputError",
+    "EmissionResult",
     "TariffKind",
     "costs",
+    "emissions",
     "reduced_grid_fee_ct_per_kwh",
     "value_shared_ct_per_kwh",
 ]

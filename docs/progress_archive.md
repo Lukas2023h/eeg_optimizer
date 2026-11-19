@@ -4,6 +4,18 @@
 
 ---
 
+## 2026-11-18 – F2-04 – UI: Konfigurationsseite
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `src/eeg_optimizer/config_store.py` (ohne Streamlit) bietet `available_configs`, `apply_edits` (validiert nur über `parse_config`), `resize_households`, `save_user_config` nach `data/configs/<name>.yaml` mit sicherem Dateinamen und Session-State-Schlüssel. Neue Seite `app/pages/configuration.py` (`/konfiguration`) mit Dateiauswahl, Name, PV (kWp/Neigung/Ausrichtung), EEG-Typ, Tarifen, Anzahl Haushalte und Lastprofil je Haushalt sowie den Knöpfen „Übernehmen“ (nur Session State) und „Speichern“. Fehler erscheinen als deutsche `st.error`-Meldung, die letzte gültige Konfiguration bleibt aktiv. Tests: `tests/unit/test_config_store.py`, `tests/unit/test_configuration_page.py` (Streamlit-AppTest, Session State) und `tests/e2e/test_configuration_page.py` (kWp 20 speichern, kWp negativ, Seitenwechsel, Haushaltsanzahl). Ergänzt ist architecture.md §6. Die Reviewer-Minors „MAX_HOUSEHOLDS hart codiert“ und „`_on_select` bei gelöschter Datei“ sind behoben.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit):
+  - „Speichern“ überschreibt eine vorhandene Datei gleichen Namens ohne Hinweis.
+  - `_collect_edits` ist ca. 50 Zeilen lang, bei der nächsten Änderung (F4-04) PV- und Tarif-Teil auslagern.
+  - Für „Speichern“ gibt es keinen AppTest, nur E2E.
+  - Jahr, Standort, Quellen von PV/Preis/CO₂ und Seeds sind in der UI nicht editierbar (nicht gefordert).
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh`.
+
 ## 2026-11-18 – F2-03 – Gemeinschafts-Zeitreihen aus Konfiguration bauen
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: `src/eeg_optimizer/community.py`. `build_inputs(config, cache=None)` gibt `CommunityInputs` zurück (pv, loads je Haushalts-ID in Config-Reihenfolge, prices, co2). Die Registries `PV_SOURCES`/`LOAD_SOURCES`/`PRICE_SOURCES`/`CO2_SOURCES` bilden den Quellnamen auf dünne Adapter ab (Config-dataclasses → Schlüsselwort-Signaturen der Quellen), damit ist der Adapter-Punkt aus F1-04..F1-06 erledigt. Fehlt eine Quelle, kommt `CommunitySourceError` mit Schlüsselpfad und der Liste der verfügbaren Quellen. An der Grenze wird jeder Frame geprüft: genau die kanonische Spalte, `validate_frame` und Index == `year_index(year)`. architecture.md §4 ist ergänzt. Tests: `tests/unit/test_community.py` (Offline-Build mit gesperrtem Socket, Dispatch, Erweiterbarkeit, Adapter-Argumente der Netzquellen per Mock, Grenzprüfungen) und `tests/property/test_community_properties.py` (INV-4/INV-6, Jahre 2015–2030).

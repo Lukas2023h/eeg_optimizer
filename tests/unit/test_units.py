@@ -13,6 +13,7 @@ from eeg_optimizer.units import (
     FrameValidationError,
     KWh,
     ct_to_eur,
+    g_to_kg_co2,
     kw_to_kwh,
     kwh_to_kw,
     validate_frame,
@@ -23,6 +24,11 @@ def test_ct_to_eur_scalar_and_array() -> None:
     assert ct_to_eur(942.0) == pytest.approx(9.42)
     assert ct_to_eur(-50.0) == pytest.approx(-0.5)
     np.testing.assert_allclose(ct_to_eur(np.array([100.0, -2.5])), [1.0, -0.025])
+
+
+def test_g_to_kg_co2_scalar_and_array() -> None:
+    assert g_to_kg_co2(907.0) == pytest.approx(0.907)
+    np.testing.assert_allclose(g_to_kg_co2(np.array([1000.0, 0.0, 2.5])), [1.0, 0.0, 0.0025])
 
 
 def _frame(periods: int = 8, start: str = "2023-06-01 00:00") -> pd.DataFrame:

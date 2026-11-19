@@ -171,6 +171,13 @@ def emissions(balance, allocation, co2: pd.DataFrame) -> EmissionResult
 # Vermiedene kg CO₂ = Differenz zweier Ergebnisse (F6-01). Fehler: EmissionInputError (Spalten, Index,
 # negative Intensität, Allocation passt nicht, Toleranz 1e-6 kWh).
 def compare(baseline: Scenario, optimized: Scenario) -> Comparison
+
+# analysis.py (F3-06, ohne Streamlit, auch für optimierte Balance nutzbar)
+def analyze(config: CommunityConfig, inputs: CommunityInputs) -> BaselineAnalysis
+# BaselineAnalysis (frozen): balance, kpis, monthly (monthly_kpis), profile, surplus, costs (fixer Tarif), emissions.
+def daily_profile(balance) -> pd.DataFrame   # 96 Zeilen, Index time_of_day "HH:MM", Spalten pv_kw, load_kw (Mittel)
+def surplus_by_day_hour(balance) -> pd.Series   # export_kwh, MultiIndex (day: date, hour: 0..23), Ortszeit
+# ASSUMPTION_NOTES: deutsche Hinweistexte (perfekte Voraussicht, HTW-Profile, CO₂ ohne Importe, Tarife).
 ```
 
 **Quellen-Dispatch (`community.py`):** Die Quellenmodule behalten ihre Schlüsselwort-Signaturen. `community.py` enthält dünne Adapter in der oben gezeigten Config-Form und die Registries `PV_SOURCES`, `LOAD_SOURCES`, `PRICE_SOURCES`, `CO2_SOURCES` (Quellname → Adapter). Eine neue Quelle braucht nur einen Eintrag dort (z. B. `smartmeter` in F8-01). Fehlt ein Eintrag, kommt `CommunitySourceError` mit Schlüsselpfad, z. B. `households[2].load.source: Datenquelle 'smartmeter' ist nicht verfügbar, verfügbar: htw, synthetic`. Jeder Quell-Frame muss genau seine kanonische Spalte haben, `validate_frame` bestehen und exakt `year_index(period.year)` als Index haben.
@@ -193,6 +200,8 @@ Die Quellen holen über HTTP nur, wenn der Cache fehlt (`data/cache/<source>/<ke
 Seiten: **Konfiguration** (YAML laden/bearbeiten/speichern), **Ist-Analyse** (KPIs, Tages-/Monatsprofil, Heatmap), **Optimierung** (Ziel und Solver wählen, Start, Laufzeit), **Vergleich** (pro Haushalt und gesamt), **Export** (CSV). Hinweisbox auf jeder Ergebnisseite: „Obergrenze bei perfekter Voraussicht. Annahmen siehe …“. Neben dem Optimierungsergebnis stehen außerdem „pro Tagesblock optimal, nicht global“ und die Anzahl der Rückfall-Blöcke. Für Playwright erhalten wichtige Elemente stabile Labels bzw. `key`s. Berechnungen werden per `st.cache_data` gecacht.
 
 **Aktive Konfiguration (F2-04):** Die Seite Konfiguration (`app/pages/configuration.py`, URL `/konfiguration`) legt die gewählte bzw. übernommene Konfiguration als `CommunityConfig` in `st.session_state["community_config"]` ab (Konstante `config_store.SESSION_CONFIG_KEY`), die Herkunftsdatei in `SESSION_PATH_KEY`. Fehlt der Eintrag, laden andere Seiten `config_store.DEFAULT_CONFIG_PATH`. Die Logik ohne Streamlit liegt in `config_store.py`: `available_configs` (Beispiele aus `config/` ohne `defaults.yaml` plus `data/configs/*.yaml`), `apply_edits(cfg, teil_mapping)` (Validierung nur über `parse_config`), `resize_households` und `save_user_config` (nach `data/configs/<name>.yaml`, Name nur `[A-Za-z0-9_-]`). Ungültige Eingaben zeigen die `ConfigError`-Meldung und lassen die zuletzt gültige Konfiguration aktiv.
+
+**Ist-Analyse (F3-06):** `app/pages/analysis.py`, URL `/ist-analyse`. `st.cache_data` auf `_analyze(config_json)`, Schlüssel ist `config_to_dict` als JSON (sortiert). KPI-Kacheln sind `st.metric` mit eindeutigen Labels, die Diagramme haben die Keys `analysis_profile`, `analysis_monthly`, `analysis_heatmap`, die Hinweisbox den Key `analysis_assumptions` (Text aus `analysis.ASSUMPTION_NOTES`). Fehler beim Laden der Zeitreihen werden mit Meldung angezeigt (`st.error`), nicht verschluckt.
 
 ## 7. Tests
 

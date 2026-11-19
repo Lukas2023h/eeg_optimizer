@@ -52,8 +52,20 @@ def kw_to_kwh(power: KW, interval: timedelta = INTERVAL) -> KWh:
     return KWh(power * _hours(interval))
 
 
-def kwh_to_kw(energy: KWh, interval: timedelta = INTERVAL) -> KW:
-    """Average power that delivers ``energy`` within ``interval``."""
+@overload
+def kwh_to_kw(energy: KWh, interval: timedelta = INTERVAL) -> KW: ...
+@overload
+def kwh_to_kw(
+    energy: npt.NDArray[np.float64], interval: timedelta = INTERVAL
+) -> npt.NDArray[np.float64]: ...
+
+
+def kwh_to_kw(
+    energy: KWh | npt.NDArray[np.float64], interval: timedelta = INTERVAL
+) -> KW | npt.NDArray[np.float64]:
+    """Average power that delivers ``energy`` within ``interval``, element-wise on arrays."""
+    if isinstance(energy, np.ndarray):
+        return energy / _hours(interval)
     return KW(energy / _hours(interval))
 
 

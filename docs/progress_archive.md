@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-18 – F3-01 – Energiebilanz der Gemeinschaft
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `src/eeg_optimizer/balance.py` mit `community_balance(pv, loads)`: shared = min(pv, Summe Last), export = pv − shared, grid_import = Last − shared. Die Eingänge werden geprüft (genau eine kanonische Spalte, `validate_frame`, gleicher Index, ≥ 1 Haushalt, sonst `BalanceInputError`), der Ausgang ebenfalls per `validate_frame`. Tests: `tests/unit/test_balance.py` (Werte, PV = 0, Last = 0, PV == Last, ganzes Jahr mit Zeitumstellung, Fehlerfälle) und `tests/property/test_balance.py` (INV-1 mit Toleranz 1e-6, alle Werte ≥ 0, 1–15 Haushalte). architecture.md §4 ist ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (nit): `test_columns_and_values` vergleicht exakt und braucht deshalb dyadische Testwerte.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh`.
+
 ## 2026-11-18 – F2-04 – UI: Konfigurationsseite
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: `src/eeg_optimizer/config_store.py` (ohne Streamlit) bietet `available_configs`, `apply_edits` (validiert nur über `parse_config`), `resize_households`, `save_user_config` nach `data/configs/<name>.yaml` mit sicherem Dateinamen und Session-State-Schlüssel. Neue Seite `app/pages/configuration.py` (`/konfiguration`) mit Dateiauswahl, Name, PV (kWp/Neigung/Ausrichtung), EEG-Typ, Tarifen, Anzahl Haushalte und Lastprofil je Haushalt sowie den Knöpfen „Übernehmen“ (nur Session State) und „Speichern“. Fehler erscheinen als deutsche `st.error`-Meldung, die letzte gültige Konfiguration bleibt aktiv. Tests: `tests/unit/test_config_store.py`, `tests/unit/test_configuration_page.py` (Streamlit-AppTest, Session State) und `tests/e2e/test_configuration_page.py` (kWp 20 speichern, kWp negativ, Seitenwechsel, Haushaltsanzahl). Ergänzt ist architecture.md §6. Die Reviewer-Minors „MAX_HOUSEHOLDS hart codiert“ und „`_on_select` bei gelöschter Datei“ sind behoben.

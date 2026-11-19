@@ -8,6 +8,7 @@ navigation = st.navigation(
     [
         st.Page("pages/home.py", title="Start", default=True),
         st.Page("pages/configuration.py", title="Konfiguration", url_path="konfiguration"),
+        st.Page("pages/analysis.py", title="Ist-Analyse", url_path="ist-analyse"),
         st.Page("pages/status.py", title="Systemstatus", url_path="systemstatus"),
     ]
 )

@@ -318,7 +318,7 @@
       "Hinweistexte zu Annahmen (deutsche HTW-Profile, CO2 ohne Importe) sichtbar bzw. verlinkt",
       "Seitenaufbau für 5 Haushalte × 1 Jahr < 10 s (gecacht)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F4-01",

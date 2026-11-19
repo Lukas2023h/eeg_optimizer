@@ -35,7 +35,7 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - `validate_frame` akzeptiert Zahlen-Strings und object-Spalten **ohne** Suffix; CSV-Quellen (F8-01) müssen Zahlen vorher parsen. tz-Prüfung über `str(tz)`: dateutil-`Europe/Vienna` wird abgelehnt. (F1-01)
 - bool-Spalten ohne Suffix werden abgelehnt. Braucht der Optimierer Flag-Spalten, vorher entscheiden und architecture.md §3.1 ergänzen. (F1-01)
 - Suffix-Erkennung existiert doppelt: `units._unit_suffix` und `timeseries._suffix_of`. Bei neuer Nutzung nicht ein drittes Mal bauen, sondern `units` öffentlich machen. (F1-02)
-- `units.kw_to_kwh` gibt es nur skalar; eine Array-Variante wäre sauberer. Der Architekturtest erkennt nur `0.25`, nicht `/ 4` oder `/ 3600`. (F1-01, F1-04)
+- `units.kw_to_kwh` gibt es nur skalar (`kwh_to_kw` kann seit F3-06 auch Arrays); eine Array-Variante wäre sauberer. Der Architekturtest erkennt nur `0.25`, nicht `/ 4` oder `/ 3600`. (F1-01, F1-04)
 
 **Bekannte Grenzen (akzeptiert, nur bei Bedarf angehen):**
 - PVGIS (SARAH3) liefert Jahre nur bis 2023, kein Rückfall. HTW: andere Jahre als 2023 bis zu 6 Tage um 1 h verschoben, keine Feiertage; erster Parse ca. 5 s und 1 GB RAM. (F1-05, F1-06)
@@ -55,10 +55,20 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 
 - F3-06/F5-01/F6-01: `economics.emissions(balance, allocation, co2)` liefert `EmissionResult` (`community` pro Intervall mit `emissions_kg_co2`, `community_kg_co2: KgCO2`, Tabelle `households` mit `emissions_kg_co2`, `household_kg_co2(hh)`). `co2` = `CommunityInputs.co2`. Vermiedene kg = Baseline − optimiert. g → kg nur über `units.g_to_kg_co2`. Die UI muss die CO₂-Vereinfachung vermerken (siehe F1-08 oben). (F3-05)
 
+- F5-10/F6-02/F7-02: `analysis.analyze(config, inputs)` liefert `BaselineAnalysis` (balance, kpis, monthly, profile, surplus, costs, emissions); `daily_profile`/`surplus_by_day_hour` sind auch für die optimierte Balance nutzbar. Hinweistexte stehen in `analysis.ASSUMPTION_NOTES` (Seite `/ist-analyse`, Box-Key `analysis_assumptions`). Ein Link zur Annahmen-Seite fehlt noch, F7-02 ergänzt ihn. Die Seite cacht per `st.cache_data` mit dem Config-JSON als Schlüssel. (F3-06)
+
 **Für den planner (Spec anpassen):**
 - INV-4: Aggregierte Kennzahl-Tabellen tragen dimensionslose Anteile mit dem Suffix `_ratio` (architecture.md §3.1). In spec §5 und CLAUDE.md „Einheiten“ ist das noch nicht nachgezogen, `units.ALLOWED_SUFFIXES` kennt `_ratio` nicht (Zeitreihen brauchen es nicht). (F3-02)
 
 ---
+
+## 2026-11-19 – F3-06 – UI: Ist-Analyse
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Neues Modul `src/eeg_optimizer/analysis.py` (`analyze`, `daily_profile` mit mittlerer Leistung je 15-min-Slot, `surplus_by_day_hour` mit Export je Tag und Stunde, `ASSUMPTION_NOTES`). Neue Seite `app/pages/analysis.py` (URL `/ist-analyse`) mit 8 KPI-Kacheln (Quoten in %, Energie in kWh, Kosten in €, CO₂ in kg), Tagesprofil, Monatsbalken und Überschuss-Heatmap (Plotly) sowie einer Hinweisbox. Die Berechnung ist per `st.cache_data` gecacht. `units.kwh_to_kw` kann jetzt auch Arrays. Tests: `tests/unit/test_analysis.py` (Slot-Mittel, Zeitumstellung, Summen, Fehlerfälle, Offline-Beispiel < 10 s) und `tests/e2e/test_analysis_page.py` (Kacheln mit Einheiten, 3 Diagramme, Hinweise, gecachter Aufbau < 10 s). architecture.md §4 und §6 sind ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): `daily_profile`/`surplus_by_day_hour` prüfen den Eingang über einen `balance.kpis`-Aufruf (eine eigene Validierungsfunktion wäre sauberer). `use_container_width` ist in neueren Streamlit-Versionen veraltet. Das 10-s-Budget im Unit-Test ist eine Wanduhr-Messung. Die E2E-Tests prüfen den Diagramminhalt nicht.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh`.
 
 ## 2026-11-19 – F3-05 – CO2-Bilanz
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -89,13 +99,5 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Gemacht: In `balance.py` sind `Kpis` (frozen dataclass), `kpis()` und `monthly_kpis()` dazugekommen (Monatssummen per `resample("MS")` in Ortszeit, Quoten mit Nenner 0 ergeben 0.0). Der Eingang wird über `BALANCE_COLUMNS` und `validate_frame` geprüft. Tests: `tests/unit/test_kpis.py` (handgerechnetes Beispiel, Division durch 0, 12 Monate 2023, DST-Monate, Teilzeitraum, Fehlerfälle) und Properties in `tests/property/test_balance.py` (Quoten endlich und in [0, 1], Monatssummen = Gesamt). architecture.md §3.1 und §4 sind ergänzt.
 - Neue Abhängigkeiten: –
 - Offene Probleme (minor/nit): `_ratio` clippt auf [0, 1] und würde damit eine echte Verletzung von shared ≤ pv verdecken (die Property-Tests decken das ab). `kpis` baut 1-Element-Arrays für `_ratio`. Der Indexname `"month"` ist ein Literal ohne Konstante. Die Monats-Property läuft nur über ≤ 48 Intervalle.
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh`.
-
-## 2026-11-18 – F3-01 – Energiebilanz der Gemeinschaft
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: `src/eeg_optimizer/balance.py` mit `community_balance(pv, loads)`: shared = min(pv, Summe Last), export = pv − shared, grid_import = Last − shared. Die Eingänge werden geprüft (genau eine kanonische Spalte, `validate_frame`, gleicher Index, ≥ 1 Haushalt, sonst `BalanceInputError`), der Ausgang ebenfalls per `validate_frame`. Tests: `tests/unit/test_balance.py` (Werte, PV = 0, Last = 0, PV == Last, ganzes Jahr mit Zeitumstellung, Fehlerfälle) und `tests/property/test_balance.py` (INV-1 mit Toleranz 1e-6, alle Werte ≥ 0, 1–15 Haushalte). architecture.md §4 ist ergänzt.
-- Neue Abhängigkeiten: –
-- Offene Probleme (nit): `test_columns_and_values` vergleicht exakt und braucht deshalb dyadische Testwerte.
 - Fehlertypen: –
 - Nächster Schritt: `scripts/next_feature.sh`.

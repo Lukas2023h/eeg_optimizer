@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-18 – F3-04 – Kostenmodell (€)
+- Ergebnis: PASS (Evaluator PASS ×2, Reviewer-Major behoben)
+- Gemacht: `src/eeg_optimizer/economics.py` mit `value_shared_ct_per_kwh`, `reduced_grid_fee_ct_per_kwh` und `costs(balance, allocation, tariffs, prices=None) -> CostResult` (Gemeinschaftssicht pro Intervall in `_eur`, Haushaltssicht als Tabelle, Spot-Variante spot + markup). Neu ist `units.ct_to_eur` (skalar/Array). Die Eingänge werden geprüft (Balance-Spalten, Preis-Spalte/Index, Allocation-Ebenen/Spalten, `validate_frame` je Haushalt, Summe = Balance mit 1e-6 kWh). Tests: `tests/unit/test_economics.py` (9.42/7.68, handgerechnetes Mini-Beispiel fix und Spot mit negativem Preis, Verschiebe-Test 1 kWh = value_shared, ganzes Jahr, Fehlerfälle inkl. NaN) und `tests/property/test_economics.py` (Kosten = ohne Teilen − shared·value_shared, Spot-Formel mit Preisen −50..50, Spot = fix bei spot = energy_price − markup). architecture.md §4 ist ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor): Reviewer-Major (NaN in der Allocation führte still zu NaN-Kosten) ist behoben. Die Signatur weicht von der alten Skizze `costs(balance, tariffs, prices)` ab, weil die Haushaltssicht die Allocation braucht; architecture.md ist angepasst.
+- Fehlertypen: verschluckter-fehler
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F3-05).
+
 ## 2026-11-18 – F3-03 – Verteilschlüssel dynamisch anteilig
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: `src/eeg_optimizer/allocation.py` mit `AllocationStrategy`-Protocol, `DynamicProportional` (shared_h = load_h · shared/Σload, grid_import_h = load_h − shared_h, 0 bei Σload = 0), Registry `STRATEGIES` und `strategy_for(AllocationConfig)` sowie den Helfern `household_ids`, `household_frame`, `community_totals`. Die Eingänge werden geprüft (Balance-Spalten, `validate_frame`, Index, Balance passt zu den Lasten mit 1e-6 kWh). Tests: `tests/unit/test_allocation.py` (Werte, Gesamtlast 0 unter `np.errstate(all="raise")`, Summen über die Zeitumstellung, Fehlerfälle, Auswahl per Config) und `tests/property/test_allocation.py` (INV-7 mit 1e-6, shared_h ≤ load_h, alles ≥ 0). architecture.md §4 ist ergänzt.

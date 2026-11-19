@@ -254,7 +254,11 @@ def test_baseline_loads_rejects_wrong_column() -> None:
 
 
 def test_devices_flow_into_baseline_balance() -> None:
-    config = load_config(OFFLINE_CONFIG)
+    example = load_config(OFFLINE_CONFIG)
+    # start from the example without its devices (F4-03), then add exactly one EV
+    config = replace(
+        example, households=tuple(replace(hh, devices=()) for hh in example.households)
+    )
     inputs = build_inputs(config)
     first = config.households[0]
     ev_raw = {

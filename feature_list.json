@@ -367,7 +367,7 @@
       "Wärmepumpe: kind modulating, Fenster 10:00–16:00, Kommentar verweist auf Vereinfachung (spec §7.2)",
       "Mindestens ein Gerät je Art; min_power_kw standardmäßig nicht gesetzt"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F4-04",

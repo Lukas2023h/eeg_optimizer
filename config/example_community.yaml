@@ -35,19 +35,124 @@ households:             # Haushalte der Gemeinschaft (1 bis 15 Einträge)
     load:               # Grundlast des Haushalts ohne verschiebbare Geräte
       source: htw       # Datenquelle: htw (HTW-Berlin-Lastprofil, 15-min-Energie in kWh)
       profile: 1        # HTW-Profilnummer 1–74 (ganze Zahl), ca. 3 230 kWh/Jahr
+    devices:            # Verschiebbare Geräte zusätzlich zur Grundlast (spec §7.2)
+      - id: ev                     # E-Auto (Wallbox, Laden zu Hause)
+        kind: modulating           # Art: modulating (Leistung frei zwischen 0 und power_kw)
+        power_kw: 11.0             # Ladeleistung in kW (Wallbox dreiphasig)
+        energy_kwh_per_day: 8.0    # Tagesbedarf in kWh (ca. 45 km Fahrt pro Tag)
+        window:                    # Zeitfenster, in dem das Auto angesteckt ist
+          start: "18:00"           # Beginn (Uhrzeit, Ankunft zu Hause)
+          end: "07:00"             # Ende (Uhrzeit, Abfahrt am Folgetag)
+        baseline_start: "18:00"    # Ist-Betrieb: Laden sofort nach der Ankunft (Uhrzeit)
+      - id: washing_machine        # Waschmaschine (ein Lauf pro Tag, Vereinfachung)
+        kind: program              # Art: program (feste Leistung und Dauer, nur der Start ist frei)
+        power_kw: 1.0              # mittlere Leistung im Programm in kW
+        duration_min: 60           # Programmdauer in Minuten (ganze Zahl, Vielfaches von 15)
+        window:                    # Zeitfenster, in dem das Programm laufen darf
+          start: "08:00"           # Beginn (Uhrzeit)
+          end: "22:00"             # Ende (Uhrzeit, Programm muss bis dahin fertig sein)
+        baseline_start: "19:00"    # Ist-Betrieb: Start am Abend (Uhrzeit)
   - id: hh02            # Eindeutige Haushalts-ID (Text)
     load:               # Grundlast des Haushalts ohne verschiebbare Geräte
       source: htw       # Datenquelle: htw (HTW-Berlin-Lastprofil, 15-min-Energie in kWh)
       profile: 6        # HTW-Profilnummer 1–74 (ganze Zahl), kleiner Haushalt, ca. 1 400 kWh/Jahr
+    devices:            # Verschiebbare Geräte zusätzlich zur Grundlast (spec §7.2)
+      - id: dishwasher             # Geschirrspüler (ein Lauf pro Tag, Vereinfachung)
+        kind: program              # Art: program (feste Leistung und Dauer, nur der Start ist frei)
+        power_kw: 1.2              # mittlere Leistung im Programm in kW
+        duration_min: 60           # Programmdauer in Minuten (ganze Zahl, Vielfaches von 15)
+        window:                    # Zeitfenster: nach dem Abendessen bis zum nächsten Nachmittag
+          start: "20:00"           # Beginn (Uhrzeit)
+          end: "17:00"             # Ende (Uhrzeit, Folgetag)
+        baseline_start: "20:00"    # Ist-Betrieb: Start gleich nach dem Einräumen (Uhrzeit)
   - id: hh03            # Eindeutige Haushalts-ID (Text)
     load:               # Grundlast des Haushalts ohne verschiebbare Geräte
       source: htw       # Datenquelle: htw (HTW-Berlin-Lastprofil, 15-min-Energie in kWh)
       profile: 12       # HTW-Profilnummer 1–74 (ganze Zahl)
+    devices:            # Verschiebbare Geräte zusätzlich zur Grundlast (spec §7.2)
+      # Wärmepumpe vereinfacht (spec §7.2): fester Tagesbedarf ohne Gebäudeträgheit
+      # und ohne Komfortgrenzen, deshalb nur das enge Fenster 10:00 bis 16:00.
+      - id: heat_pump              # Wärmepumpe (Vereinfachung laut spec §7.2, siehe oben)
+        kind: modulating           # Art: modulating (fester Tagesbedarf, Leistung frei zwischen 0 und power_kw)
+        power_kw: 2.5              # elektrische Leistung in kW
+        energy_kwh_per_day: 8.0    # elektrischer Tagesbedarf in kWh (Jahresmittel)
+        window:                    # enges Zeitfenster laut spec §7.2
+          start: "10:00"           # Beginn (Uhrzeit)
+          end: "16:00"             # Ende (Uhrzeit)
+        baseline_start: "10:00"    # Ist-Betrieb: Start zu Fensterbeginn (Uhrzeit)
+      - id: dishwasher             # Geschirrspüler (ein Lauf pro Tag, Vereinfachung)
+        kind: program              # Art: program (feste Leistung und Dauer, nur der Start ist frei)
+        power_kw: 1.2              # mittlere Leistung im Programm in kW
+        duration_min: 60           # Programmdauer in Minuten (ganze Zahl, Vielfaches von 15)
+        window:                    # Zeitfenster: nach dem Abendessen bis zum nächsten Nachmittag
+          start: "20:00"           # Beginn (Uhrzeit)
+          end: "17:00"             # Ende (Uhrzeit, Folgetag)
+        baseline_start: "20:00"    # Ist-Betrieb: Start gleich nach dem Einräumen (Uhrzeit)
   - id: hh04            # Eindeutige Haushalts-ID (Text)
     load:               # Grundlast des Haushalts ohne verschiebbare Geräte
       source: htw       # Datenquelle: htw (HTW-Berlin-Lastprofil, 15-min-Energie in kWh)
       profile: 25       # HTW-Profilnummer 1–74 (ganze Zahl)
+    devices:            # Verschiebbare Geräte zusätzlich zur Grundlast (spec §7.2)
+      - id: boiler                 # Elektro-Warmwasserboiler
+        kind: modulating           # Art: modulating (Heizstab, Leistung frei zwischen 0 und power_kw)
+        power_kw: 2.0              # Heizleistung in kW
+        energy_kwh_per_day: 5.0    # Tagesbedarf Warmwasser in kWh
+        window:                    # Zeitfenster, in dem geheizt werden darf (Speicher puffert)
+          start: "08:00"           # Beginn (Uhrzeit)
+          end: "06:00"             # Ende (Uhrzeit, Folgetag, vor dem Duschen am Morgen)
+        baseline_start: "22:00"    # Ist-Betrieb: Heizen ab 22 Uhr wie mit Nachtstrom (Uhrzeit)
+      - id: washing_machine        # Waschmaschine (ein Lauf pro Tag, Vereinfachung)
+        kind: program              # Art: program (feste Leistung und Dauer, nur der Start ist frei)
+        power_kw: 1.0              # mittlere Leistung im Programm in kW
+        duration_min: 60           # Programmdauer in Minuten (ganze Zahl, Vielfaches von 15)
+        window:                    # Zeitfenster, in dem das Programm laufen darf
+          start: "08:00"           # Beginn (Uhrzeit)
+          end: "22:00"             # Ende (Uhrzeit, Programm muss bis dahin fertig sein)
+        baseline_start: "19:00"    # Ist-Betrieb: Start am Abend (Uhrzeit)
   - id: hh05            # Eindeutige Haushalts-ID (Text)
     load:               # Grundlast des Haushalts ohne verschiebbare Geräte
       source: htw       # Datenquelle: htw (HTW-Berlin-Lastprofil, 15-min-Energie in kWh)
       profile: 46       # HTW-Profilnummer 1–74 (ganze Zahl), großer Haushalt, ca. 8 600 kWh/Jahr
+    devices:            # Verschiebbare Geräte zusätzlich zur Grundlast (spec §7.2)
+      - id: ev                     # E-Auto (Wallbox, Laden zu Hause)
+        kind: modulating           # Art: modulating (Leistung frei zwischen 0 und power_kw)
+        power_kw: 11.0             # Ladeleistung in kW (Wallbox dreiphasig)
+        energy_kwh_per_day: 8.0    # Tagesbedarf in kWh (ca. 45 km Fahrt pro Tag)
+        window:                    # Zeitfenster, in dem das Auto angesteckt ist
+          start: "18:00"           # Beginn (Uhrzeit, Ankunft zu Hause)
+          end: "07:00"             # Ende (Uhrzeit, Abfahrt am Folgetag)
+        baseline_start: "18:00"    # Ist-Betrieb: Laden sofort nach der Ankunft (Uhrzeit)
+      # Wärmepumpe vereinfacht (spec §7.2): fester Tagesbedarf ohne Gebäudeträgheit
+      # und ohne Komfortgrenzen, deshalb nur das enge Fenster 10:00 bis 16:00.
+      - id: heat_pump              # Wärmepumpe (Vereinfachung laut spec §7.2, siehe oben)
+        kind: modulating           # Art: modulating (fester Tagesbedarf, Leistung frei zwischen 0 und power_kw)
+        power_kw: 2.5              # elektrische Leistung in kW
+        energy_kwh_per_day: 8.0    # elektrischer Tagesbedarf in kWh (Jahresmittel)
+        window:                    # enges Zeitfenster laut spec §7.2
+          start: "10:00"           # Beginn (Uhrzeit)
+          end: "16:00"             # Ende (Uhrzeit)
+        baseline_start: "10:00"    # Ist-Betrieb: Start zu Fensterbeginn (Uhrzeit)
+      - id: boiler                 # Elektro-Warmwasserboiler
+        kind: modulating           # Art: modulating (Heizstab, Leistung frei zwischen 0 und power_kw)
+        power_kw: 2.0              # Heizleistung in kW
+        energy_kwh_per_day: 5.0    # Tagesbedarf Warmwasser in kWh
+        window:                    # Zeitfenster, in dem geheizt werden darf (Speicher puffert)
+          start: "08:00"           # Beginn (Uhrzeit)
+          end: "06:00"             # Ende (Uhrzeit, Folgetag, vor dem Duschen am Morgen)
+        baseline_start: "22:00"    # Ist-Betrieb: Heizen ab 22 Uhr wie mit Nachtstrom (Uhrzeit)
+      - id: washing_machine        # Waschmaschine (ein Lauf pro Tag, Vereinfachung)
+        kind: program              # Art: program (feste Leistung und Dauer, nur der Start ist frei)
+        power_kw: 1.0              # mittlere Leistung im Programm in kW
+        duration_min: 60           # Programmdauer in Minuten (ganze Zahl, Vielfaches von 15)
+        window:                    # Zeitfenster, in dem das Programm laufen darf
+          start: "08:00"           # Beginn (Uhrzeit)
+          end: "22:00"             # Ende (Uhrzeit, Programm muss bis dahin fertig sein)
+        baseline_start: "19:00"    # Ist-Betrieb: Start am Abend (Uhrzeit)
+      - id: dishwasher             # Geschirrspüler (ein Lauf pro Tag, Vereinfachung)
+        kind: program              # Art: program (feste Leistung und Dauer, nur der Start ist frei)
+        power_kw: 1.2              # mittlere Leistung im Programm in kW
+        duration_min: 60           # Programmdauer in Minuten (ganze Zahl, Vielfaches von 15)
+        window:                    # Zeitfenster: nach dem Abendessen bis zum nächsten Nachmittag
+          start: "20:00"           # Beginn (Uhrzeit)
+          end: "17:00"             # Ende (Uhrzeit, Folgetag)
+        baseline_start: "20:00"    # Ist-Betrieb: Start gleich nach dem Einräumen (Uhrzeit)

@@ -210,6 +210,8 @@ _NUMBER = re.compile(r"^-?\d+(?:\.\d+)?$")
 _UNIT_HINTS = (
     "kWh",
     "kWp",
+    "kW",
+    "Minuten",
     "ct/kWh",
     "g CO₂",
     "Grad",

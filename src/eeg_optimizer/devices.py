@@ -25,6 +25,21 @@ the daily energy must be reachable at ``power_kw`` both within the whole window 
 from ``baseline_start`` to the window end (the baseline runs at full power from its
 start, F4-02); ``baseline_start`` must lie in the window; ``min_power_kw`` ≤ ``power_kw``;
 ``min_run_min`` ≤ window length; device ids are unique within a household.
+
+Baseline schedule (F4-02, :func:`baseline_schedule`): today's unoptimized operation. Each
+task (one per day, see :func:`tasks`) starts at ``baseline_start`` and runs at ``power_kw``
+in consecutive intervals until its daily energy is met; a modulating device puts the rest
+into one partial interval, a program runs exactly ``duration_min``. Wall-clock times are
+turned into instants per day in Europe/Vienna: a time that does not exist (spring DST,
+02:00 to 02:59) moves to 03:00, an ambiguous time (autumn DST) takes the first occurrence
+(summer time). The run itself counts real intervals, so on 2023-03-26 a window 00:00 to
+04:00 is only 3 h long and on 2023-10-29 a window 00:00 to 04:00 is 5 h long. If the
+energy no longer fits into the shortened window, :class:`BaselineScheduleError` is raised;
+nothing is cut silently. Only tasks whose whole window lies in the given index are
+scheduled (tasks at the edges, e.g. 31.12. 18:00 to 07:00 of a year, are left out), so baseline and
+optimization see the same set of tasks. The baseline may violate ``min_power_kw`` in its
+last partial interval and ``min_run_min`` if the energy is met earlier; it describes the
+current behaviour and is not an optimization result.
 """
 
 from __future__ import annotations
@@ -32,11 +47,17 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Final, Literal
 
+import numpy as np
+import pandas as pd
+
 from eeg_optimizer.config import CommunityConfig, ConfigError, ConfigSection
-from eeg_optimizer.units import INTERVAL, KW, KWh, kw_to_kwh
+from eeg_optimizer.units import INTERVAL, KW, TIMEZONE, KWh, kw_to_kwh, validate_frame
+
+DEVICE_COLUMN: Final = "device_kwh"
+LOAD_COLUMN: Final = "load_kwh"
 
 DeviceKind = Literal["modulating", "program"]
 DEVICE_KINDS: Final[tuple[DeviceKind, ...]] = ("modulating", "program")
@@ -131,6 +152,161 @@ class ProgramDevice:
 
 
 Device = ModulatingDevice | ProgramDevice
+
+
+# --------------------------------------------------------------------- baseline (F4-02)
+
+
+class BaselineScheduleError(ValueError):
+    """The baseline of a device cannot be built (e.g. energy does not fit on a DST day)."""
+
+
+@dataclass(frozen=True)
+class Task:
+    """One daily task of a device: the window that starts on ``day`` (local date).
+
+    ``window_start``/``window_end``/``baseline_start`` are tz-aware instants in
+    Europe/Vienna on the 15-min grid; the window is ``[window_start, window_end)``.
+    """
+
+    device_id: str
+    day: date
+    window_start: pd.Timestamp
+    window_end: pd.Timestamp
+    baseline_start: pd.Timestamp
+    energy_kwh: KWh
+
+
+def _local_instant(day: date, t: time) -> pd.Timestamp:
+    # Nonexistent (spring) -> shifted to 03:00; ambiguous (autumn) -> first occurrence.
+    naive = pd.Timestamp(datetime.combine(day, t))
+    return naive.tz_localize(TIMEZONE, ambiguous=True, nonexistent="shift_forward")
+
+
+def _task_for_day(device: Device, day: date) -> Task:
+    window = device.window
+    next_day = day + timedelta(days=1)
+    end_day = next_day if window.crosses_midnight else day
+    baseline_day = next_day if device.baseline_start < window.start else day
+    return Task(
+        device_id=device.id,
+        day=day,
+        window_start=_local_instant(day, window.start),
+        window_end=_local_instant(end_day, window.end),
+        baseline_start=_local_instant(baseline_day, device.baseline_start),
+        energy_kwh=device.energy_kwh_per_day,
+    )
+
+
+def _checked_index(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    validate_frame(pd.DataFrame(index=index))
+    return index
+
+
+def tasks(device: Device, index: pd.DatetimeIndex) -> list[Task]:
+    """All daily tasks of ``device`` whose whole window lies inside ``index``.
+
+    ``index`` must be in the internal format (gapless 15-min grid, Europe/Vienna); its
+    end is the start of the last interval plus 15 min. Tasks are ordered by day.
+
+    Raises:
+        units.FrameValidationError: if ``index`` is not in the internal format.
+    """
+    index = _checked_index(index)
+    first, end = index[0], index[-1] + INTERVAL
+    day = (first - timedelta(days=1)).date()  # a window from the day before may fit
+    last_day = index[-1].date()
+    result: list[Task] = []
+    while day <= last_day:
+        task = _task_for_day(device, day)
+        if task.window_start >= first and task.window_end <= end:
+            result.append(task)
+        day += timedelta(days=1)
+    return result
+
+
+def _position(index: pd.DatetimeIndex, instant: pd.Timestamp) -> int:
+    """Position of ``instant`` in ``index``; ``len(index)`` for the end of the index."""
+    pos = int(index.searchsorted(instant))
+    if pos < len(index) and index[pos] != instant:
+        raise BaselineScheduleError(f"{instant.isoformat()} liegt nicht auf dem 15-min-Raster")
+    return pos
+
+
+def _run_energies(device: Device) -> np.ndarray:
+    """Energy per interval of one baseline run (full power, rest in the last interval)."""
+    per_interval = kw_to_kwh(device.power_kw, INTERVAL)
+    if isinstance(device, ProgramDevice):
+        n_intervals = device.duration_min // _GRID_MIN
+        return np.full(n_intervals, per_interval, dtype=float)
+    energy = device.energy_kwh_per_day
+    n_full = int(np.floor((energy + _ENERGY_TOLERANCE_KWH) / per_interval))
+    rest = max(energy - n_full * per_interval, 0.0)
+    run: list[float] = [per_interval] * n_full
+    if rest > _ENERGY_TOLERANCE_KWH:
+        run.append(rest)
+    return np.asarray(run, dtype=float)
+
+
+def baseline_schedule(device: Device, index: pd.DatetimeIndex) -> pd.Series:
+    """Baseline energy of ``device`` per interval of ``index`` (Series ``device_kwh``).
+
+    Every task of :func:`tasks` runs from its ``baseline_start`` at ``power_kw`` until the
+    daily energy is met (program: for ``duration_min``); all other intervals are 0.
+
+    Raises:
+        units.FrameValidationError: if ``index`` is not in the internal format.
+        BaselineScheduleError: if a run does not end inside its window (only possible on
+            the spring DST day, when the window loses one hour).
+    """
+    index = _checked_index(index)
+    values = np.zeros(len(index), dtype=float)
+    run = _run_energies(device)
+    for task in tasks(device, index):
+        start = _position(index, task.baseline_start)
+        stop = start + len(run)
+        if stop > _position(index, task.window_end):
+            raise BaselineScheduleError(
+                f"Gerät {device.id!r}, Tag {task.day:%Y-%m-%d}: der Baseline-Lauf ab "
+                f"{task.baseline_start:%H:%M} braucht {len(run)} Intervalle und endet nach "
+                f"dem Fensterende {task.window_end:%H:%M} (Zeitumstellung verkürzt das "
+                "Fenster um 1 h); baseline_start früher legen oder Fenster verlängern"
+            )
+        values[start:stop] += run
+    return pd.Series(values, index=index, name=DEVICE_COLUMN)
+
+
+def baseline_loads(
+    loads: Mapping[str, pd.DataFrame], devices: Mapping[str, Sequence[Device]]
+) -> dict[str, pd.DataFrame]:
+    """Household loads with the baseline of their flexible devices added (``load_kwh``).
+
+    ``loads`` are the inflexible loads (exactly ``load_kwh``, internal format, one index);
+    ``devices`` maps household ids to their devices (households missing there have none).
+
+    Raises:
+        BaselineScheduleError: for devices of an unknown household or a wrong load frame.
+        units.FrameValidationError: if a load frame is not in the internal format.
+    """
+    unknown = sorted(set(devices) - set(loads))
+    if unknown:
+        raise BaselineScheduleError(
+            f"Geräte für unbekannte Haushalte: {', '.join(unknown)} (bekannt: {', '.join(loads)})"
+        )
+    result: dict[str, pd.DataFrame] = {}
+    for household_id, frame in loads.items():
+        if list(frame.columns) != [LOAD_COLUMN]:
+            raise BaselineScheduleError(
+                f"Last von {household_id!r}: genau die Spalte {LOAD_COLUMN!r} erwartet, "
+                f"gefunden {list(frame.columns)}"
+            )
+        validate_frame(frame)
+        total = frame[LOAD_COLUMN].to_numpy(dtype=float).copy()
+        index = pd.DatetimeIndex(frame.index)
+        for device in devices.get(household_id, ()):
+            total += baseline_schedule(device, index).to_numpy(dtype=float)
+        result[household_id] = pd.DataFrame({LOAD_COLUMN: total}, index=index)
+    return result
 
 
 # --------------------------------------------------------------------------- parsing
@@ -306,12 +482,18 @@ def _fmt_window(window: TimeWindow) -> str:
 
 
 __all__ = [
+    "DEVICE_COLUMN",
     "DEVICE_KINDS",
+    "LOAD_COLUMN",
+    "BaselineScheduleError",
     "Device",
     "DeviceKind",
     "ModulatingDevice",
     "ProgramDevice",
+    "Task",
     "TimeWindow",
+    "baseline_loads",
+    "baseline_schedule",
     "devices_for",
     "parse_device",
     "parse_devices",

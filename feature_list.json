@@ -351,7 +351,7 @@
       "DST-Tage korrekt (Test für 2023-03-26 und 2023-10-29)",
       "Flexible Lasten werden zur Haushaltslast addiert und fließen in die Baseline-Bilanz ein (Test)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F4-03",

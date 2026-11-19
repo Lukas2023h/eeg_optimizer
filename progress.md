@@ -60,7 +60,19 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 **Für den planner (Spec anpassen):**
 - INV-4: Aggregierte Kennzahl-Tabellen tragen dimensionslose Anteile mit dem Suffix `_ratio` (architecture.md §3.1). In spec §5 und CLAUDE.md „Einheiten“ ist das noch nicht nachgezogen, `units.ALLOWED_SUFFIXES` kennt `_ratio` nicht (Zeitreihen brauchen es nicht). (F3-02)
 
+- F4-03/F5/F5-07: `devices.tasks(device, index)` liefert die Tagesaufgaben (`Task` mit tz-aware `window_start`/`window_end`/`baseline_start`, `day` = Tag des Fensterbeginns). Nur Aufgaben mit ganzem Fenster im Index zählen (2023: E-Auto 18–07 → 364 Aufgaben); der Optimierer muss dieselbe Menge verwenden, sonst ist der Vergleich unfair. `devices.baseline_schedule` → `device_kwh`, `devices.baseline_loads(loads, devices_for(cfg))` = Baseline-Last; `analysis.analyze` nutzt sie schon. Die Optimierung braucht die **unflexiblen** `CommunityInputs.loads` plus Geräte separat. (F4-02)
+- F4-03: Geräte, deren Fenster 02:00–03:00 überdeckt, brauchen ≥ 1 h Reserve ab `baseline_start`, sonst wirft `baseline_schedule` am 26.3. `BaselineScheduleError` (Fenster real 1 h kürzer) und die Ist-Analyse bricht ab. (F4-02)
+- F5-07 (Rückfall auf Baseline): Der Baseline-Lauf hält `min_power_kw` im letzten Teilintervall und `min_run_min` nicht unbedingt ein. Fällt ein Block auf die Baseline zurück, ist INV-2 dafür nicht garantiert; Runner/Greedy entsprechend prüfen. (F4-02)
+
 ---
+
+## 2026-11-19 – F4-02 – Baseline-Fahrplan flexibler Lasten
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: In `devices.py` neu `Task`, `tasks`, `baseline_schedule` (volle Leistung ab `baseline_start`, Rest im letzten Intervall, Programm feste Dauer; nicht existente Uhrzeit → 03:00, doppelte → erstes Auftreten; echte Intervalle zählen; Lauf über Fensterende → `BaselineScheduleError`) und `baseline_loads`. `analysis.analyze` rechnet die Baseline-Bilanz jetzt mit Gerätelasten. Tests: `tests/unit/test_baseline_schedule.py` (Werte, Mitternacht, beide DST-Tage, ganzes Jahr, Lasten addiert, Ist-Analyse mit E-Auto) und `tests/property/test_baseline_schedule.py` (Tagesenergie, Leistungsgrenze, nur im Fenster, Aufgaben disjunkt, über DST-Tage). architecture.md §4 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Randaufgaben (31.12. abends) fallen bewusst weg. `_checked_index` baut einen Wegwerf-DataFrame für `validate_frame`; `_run_energies` ist als bare `np.ndarray` typisiert.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F4-03).
 
 ## 2026-11-19 – F4-01 – Gerätemodell flexibler Lasten
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -93,11 +105,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Offene Probleme (minor): Reviewer-Major (NaN in der Allocation führte still zu NaN-Kosten) ist behoben. Die Signatur weicht von der alten Skizze `costs(balance, tariffs, prices)` ab, weil die Haushaltssicht die Allocation braucht; architecture.md ist angepasst.
 - Fehlertypen: verschluckter-fehler
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F3-05).
-
-## 2026-11-18 – F3-03 – Verteilschlüssel dynamisch anteilig
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: `src/eeg_optimizer/allocation.py` mit `AllocationStrategy`-Protocol, `DynamicProportional` (shared_h = load_h · shared/Σload, grid_import_h = load_h − shared_h, 0 bei Σload = 0), Registry `STRATEGIES` und `strategy_for(AllocationConfig)` sowie den Helfern `household_ids`, `household_frame`, `community_totals`. Die Eingänge werden geprüft (Balance-Spalten, `validate_frame`, Index, Balance passt zu den Lasten mit 1e-6 kWh). Tests: `tests/unit/test_allocation.py` (Werte, Gesamtlast 0 unter `np.errstate(all="raise")`, Summen über die Zeitumstellung, Fehlerfälle, Auswahl per Config) und `tests/property/test_allocation.py` (INV-7 mit 1e-6, shared_h ≤ load_h, alles ≥ 0). architecture.md §4 ist ergänzt.
-- Neue Abhängigkeiten: –
-- Offene Probleme (nit): `strategy_for` wirft `KeyError` statt einer `ValueError`-Unterklasse (in `str()` erscheint die Meldung in Anführungszeichen). Die Spaltennamen-Konstanten bleiben doppelt (siehe Offene Punkte F3-01).
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh`.

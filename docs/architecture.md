@@ -158,7 +158,17 @@ def devices_for(config: CommunityConfig) -> dict[str, tuple[Device, ...]]   # je
 # Geprüft: Energie mit power_kw im Fenster und ab baseline_start bis Fensterende erreichbar
 # (Programm: Dauer passt ab baseline_start), baseline_start im Fenster, min_power_kw ≤ power_kw,
 # min_run_min ≤ Fensterlänge, Geräte-IDs je Haushalt eindeutig.
+def tasks(device: Device, index: pd.DatetimeIndex) -> list[Task]   # F4-02
+# Task (frozen): device_id, day (Tag des Fensterbeginns), window_start, window_end, baseline_start
+# (tz-aware Zeitpunkte Europe/Vienna), energy_kwh. Nur Aufgaben, deren ganzes Fenster im Index liegt
+# (z. B. 2023: E-Auto 18–07 Uhr -> 364 Aufgaben). Uhrzeiten je Tag: nicht existent (Frühjahr) -> 03:00,
+# doppelt (Herbst) -> erstes Auftreten. Laufzeit zählt echte Intervalle (Fenster am 26.3. ggf. 1 h kürzer).
 def baseline_schedule(device: Device, index: pd.DatetimeIndex) -> pd.Series   # device_kwh (F4-02)
+# Ab baseline_start volle Leistung in aufeinanderfolgenden Intervallen bis Tagesenergie erreicht
+# (modulating: Rest im letzten Intervall; program: duration_min). Endet der Lauf nach dem Fensterende
+# (nur Frühjahrs-Zeitumstellung möglich) -> BaselineScheduleError, nie still abgeschnitten.
+def baseline_loads(loads: Mapping[str, DataFrame], devices: Mapping[str, Sequence[Device]]) -> dict[str, DataFrame]
+# load_kwh + Σ baseline_schedule je Haushalt; analysis.analyze nutzt das für die Baseline-Bilanz.
 
 # optimize/runner.py
 def optimize(inputs: OptimizationInputs, objective: Objective, solver: Literal["milp","greedy"]) -> Schedule

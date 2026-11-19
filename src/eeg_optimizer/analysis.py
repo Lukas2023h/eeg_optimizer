@@ -1,7 +1,8 @@
 """Baseline analysis of a community (F3-06): everything the page 'Ist-Analyse' shows.
 
 ``analyze(config, inputs)`` runs balance, KPIs, allocation, costs (fixed tariff) and
-emissions on the base loads (no shifting) and adds the two views used only for charts:
+emissions on the baseline loads (inflexible load plus the baseline schedule of every
+device, :func:`devices.baseline_loads`, no shifting) and adds two views used for charts:
 
 * :func:`daily_profile`: mean power per 15-min slot of the day (local time), PV vs. load.
 * :func:`surplus_by_day_hour`: PV surplus (``export_kwh``) summed per calendar day and hour.
@@ -17,7 +18,7 @@ from typing import Final
 
 import pandas as pd
 
-from eeg_optimizer import allocation, balance, economics
+from eeg_optimizer import allocation, balance, devices, economics
 from eeg_optimizer.balance import Kpis
 from eeg_optimizer.community import CommunityInputs
 from eeg_optimizer.config import CommunityConfig
@@ -114,8 +115,9 @@ def analyze(config: CommunityConfig, inputs: CommunityInputs) -> BaselineAnalysi
     Raises:
         Every input error of balance, allocation and economics (all ``ValueError``).
     """
-    bal = balance.community_balance(inputs.pv, inputs.loads)
-    alloc = allocation.strategy_for(config.allocation).allocate(bal, inputs.loads)
+    loads = devices.baseline_loads(inputs.loads, devices.devices_for(config))
+    bal = balance.community_balance(inputs.pv, loads)
+    alloc = allocation.strategy_for(config.allocation).allocate(bal, loads)
     return BaselineAnalysis(
         balance=bal,
         kpis=balance.kpis(bal),

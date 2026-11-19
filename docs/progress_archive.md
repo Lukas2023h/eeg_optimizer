@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-18 – F3-03 – Verteilschlüssel dynamisch anteilig
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `src/eeg_optimizer/allocation.py` mit `AllocationStrategy`-Protocol, `DynamicProportional` (shared_h = load_h · shared/Σload, grid_import_h = load_h − shared_h, 0 bei Σload = 0), Registry `STRATEGIES` und `strategy_for(AllocationConfig)` sowie den Helfern `household_ids`, `household_frame`, `community_totals`. Die Eingänge werden geprüft (Balance-Spalten, `validate_frame`, Index, Balance passt zu den Lasten mit 1e-6 kWh). Tests: `tests/unit/test_allocation.py` (Werte, Gesamtlast 0 unter `np.errstate(all="raise")`, Summen über die Zeitumstellung, Fehlerfälle, Auswahl per Config) und `tests/property/test_allocation.py` (INV-7 mit 1e-6, shared_h ≤ load_h, alles ≥ 0). architecture.md §4 ist ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (nit): `strategy_for` wirft `KeyError` statt einer `ValueError`-Unterklasse (in `str()` erscheint die Meldung in Anführungszeichen). Die Spaltennamen-Konstanten bleiben doppelt (siehe Offene Punkte F3-01).
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh`.
+
 ## 2026-11-18 – F3-02 – Baseline-Kennzahlen
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: In `balance.py` sind `Kpis` (frozen dataclass), `kpis()` und `monthly_kpis()` dazugekommen (Monatssummen per `resample("MS")` in Ortszeit, Quoten mit Nenner 0 ergeben 0.0). Der Eingang wird über `BALANCE_COLUMNS` und `validate_frame` geprüft. Tests: `tests/unit/test_kpis.py` (handgerechnetes Beispiel, Division durch 0, 12 Monate 2023, DST-Monate, Teilzeitraum, Fehlerfälle) und Properties in `tests/property/test_balance.py` (Quoten endlich und in [0, 1], Monatssummen = Gesamt). architecture.md §3.1 und §4 sind ergänzt.

@@ -1,4 +1,4 @@
-"""MILP for one time block of the optimization (F5-02 modulating, F5-03 program devices).
+"""MILP for one time block of the optimization (F5-02..F5-05).
 
 :func:`build_block_model` turns :class:`~eeg_optimizer.optimize.objectives.OptimizationInputs`
 (already cut to one block, e.g. one day plus the night) into a PuLP model;
@@ -11,10 +11,25 @@ Variables and constraints (docs/architecture.md §5), per interval ``t`` of the 
 * ``x[d, t] ≥ 0`` energy of device ``d`` in kWh, ``x[d, t] ≤ kw_to_kwh(power_kw)``;
   ``x[d, t] = 0`` outside the windows of the tasks of ``d`` (:func:`devices.tasks`);
   ``Σ_{t in window} x[d, t] = energy_kwh`` for every task (INV-2).
-* ``shared[t] ≤ pv[t]``, ``shared[t] ≤ inflexible_load[t] + Σ_d x[d, t]``.
-* ``max_shared``: maximize ``Σ shared[t]``. At the optimum ``shared[t]`` equals
-  ``min(pv, load)`` of :func:`balance.community_balance` wherever that matters for the sum, so
-  the LP value is the score of :func:`evaluate`.
+* ``shared[t] ≤ pv[t]``, ``shared[t] ≤ load[t]`` with ``load = inflexible_load + Σ_d x[d, t]``.
+
+Objectives (F5-05), maximized, equal to the score of :func:`evaluate` (higher is better; the
+constant ``Σ pv · pv_weight`` is part of the LP objective, so the optimal LP value *is* the
+score). With ``import = load - shared`` and ``export = pv - shared`` (balance) every objective
+is ``Σ shared · shared_weight - Σ load · load_weight + Σ pv · pv_weight``
+(:func:`objective_weights`, coefficients from :mod:`economics`):
+
+* ``max_shared``: weights ``1, 0, 0`` (kWh).
+* ``min_cost`` (€, spot tariff, community view): ``load_weight`` = import price
+  (spot + markup + grid fee + levies), ``pv_weight`` = feed-in tariff, ``shared_weight`` =
+  import price - shared price (reduced grid fee + levies) - feed-in tariff.
+* ``min_co2`` (kg CO₂): ``shared_weight = load_weight`` = grid intensity, ``pv_weight = 0``.
+
+Where ``shared_weight[t] > 0`` the optimum sets ``shared[t] = min(pv, load)`` of
+:func:`balance.community_balance` by itself; where it is 0 ``shared`` does not change the
+score. Where it is negative (``min_cost`` at very negative spot prices) the solver would share
+less than the balance does, so a binary forces ``shared[t] = min(pv[t], load[t])`` exactly
+(:func:`_force_shared_to_minimum`); those intervals make the model a MILP.
 
 Program devices (F5-03, washing machine, dishwasher) run ``n = duration_min / 15`` intervals
 at ``power_kw`` in one piece. Per task there is one binary ``y[d, s]`` for every start ``s``
@@ -40,8 +55,6 @@ gets a binary ``on[d, t]`` ("running") with ``floor · on ≤ x[d, t] ≤ cap ·
 
 A task whose energy cannot be split into runs that respect ``min_power_kw`` (e.g. 1 kWh at
 least 4.1 kW per 15 min) is infeasible; :func:`solve_block` raises :class:`BlockSolveError`.
-The objectives ``min_cost``/``min_co2`` (F5-05) are not part of this model yet and raise
-:class:`UnsupportedModelError` instead of being ignored.
 
 Without min options the baseline schedule is a feasible point of the model (same tasks, same
 energy, same power limit), so the optimum is never worse than the baseline (INV-3). The
@@ -64,21 +77,33 @@ from datetime import timedelta
 from typing import Any, Final
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import pulp
 
 from eeg_optimizer.balance import LOAD_COLUMN, PV_COLUMN
 from eeg_optimizer.devices import DEVICE_COLUMN, ModulatingDevice, ProgramDevice, tasks
+from eeg_optimizer.economics import (
+    co2_intensity_g_per_kwh,
+    community_shared_price_ct_per_kwh,
+    import_price_ct_per_kwh,
+)
 from eeg_optimizer.optimize.objectives import Objective, OptimizationInputs
-from eeg_optimizer.units import INTERVAL, KW, kw_to_kwh, validate_frame
+from eeg_optimizer.units import INTERVAL, KW, ct_to_eur, g_to_kg_co2, kw_to_kwh, validate_frame
 
-SUPPORTED_OBJECTIVES: Final[tuple[Objective, ...]] = ("max_shared",)
+SUPPORTED_OBJECTIVES: Final[tuple[Objective, ...]] = ("max_shared", "min_cost", "min_co2")
 ENERGY_REPAIR_LIMIT_KWH: Final = 1e-4
 """Largest task-energy deviation of a solver result that counts as rounding noise."""
 BINARY_TOLERANCE: Final = 1e-6
 """Largest distance of a solved binary from 0 or 1 that counts as rounding noise."""
 SUMMATION_NOISE_KWH: Final = 1e-9
 """Energy deviation that only stems from float summation order (all values at a bound)."""
+SHARED_BINARY_MIN_KWH: Final = 1e-6
+"""Smallest PV energy per interval that gets the binary ``shared = min(pv, load)`` when sharing
+has a negative value (:func:`_force_shared_to_minimum`). With PV of ~1e-12 kWh next to a load of
+~1e-9 kWh CBC reports such a model as infeasible (CBC tolerances ~1e-7). Below the limit the
+model may share less than the balance; the score differs by at most ``pv · |shared_weight|``
+(< 1e-6 kWh · 1 €/kWh)."""
 RUN_FLOOR_SHARE: Final = 0.01
 """Share of ``cap`` used as minimum energy per running interval when only ``min_run_min`` is
 set (see module docstring)."""
@@ -274,6 +299,48 @@ def _add_program_task(
     return TaskSpan(span.start, span.stop, span.energy_kwh, starts, run)
 
 
+@dataclass(frozen=True)
+class ObjectiveWeights:
+    """Per-interval weights of the block objective (module docstring, "Objectives").
+
+    ``score = Σ shared · shared_weight - Σ load · load_weight + Σ pv · pv_weight``, all in the
+    unit of the objective per kWh (kWh/kWh, €/kWh, kg CO₂/kWh).
+    """
+
+    shared_weight: npt.NDArray[np.float64]
+    load_weight: npt.NDArray[np.float64]
+    pv_weight: npt.NDArray[np.float64]
+
+
+def objective_weights(inputs: OptimizationInputs, objective: Objective) -> ObjectiveWeights:
+    """Weights of ``objective`` with the coefficients of :mod:`economics` (spot tariff for cost).
+
+    Raises:
+        UnsupportedModelError: unknown objective.
+        economics.CostInputError, economics.EmissionInputError, units.FrameValidationError:
+            prices or co2 frame with wrong column, index or values.
+    """
+    index = inputs.index
+    n = len(index)
+    if objective == "max_shared":
+        return ObjectiveWeights(np.ones(n), np.zeros(n), np.zeros(n))
+    if objective == "min_cost":
+        import_price = import_price_ct_per_kwh(index, inputs.tariffs, inputs.prices)
+        feed_in = np.full(n, inputs.tariffs.feed_in_tariff, dtype=float)
+        # One kWh shared instead of imported and exported (economics module docstring).
+        shared_value = import_price - community_shared_price_ct_per_kwh(inputs.tariffs) - feed_in
+        return ObjectiveWeights(
+            ct_to_eur(shared_value), ct_to_eur(import_price), ct_to_eur(feed_in)
+        )
+    if objective == "min_co2":
+        intensity = g_to_kg_co2(co2_intensity_g_per_kwh(inputs.co2, index))
+        return ObjectiveWeights(intensity, intensity, np.zeros(n))
+    raise UnsupportedModelError(
+        f"objective {objective!r} is not supported by the block model "
+        f"(supported: {', '.join(SUPPORTED_OBJECTIVES)})"
+    )
+
+
 def build_block_model(inputs: OptimizationInputs, objective: Objective) -> BlockModel:
     """Build the (MI)LP of one block (see module docstring).
 
@@ -281,7 +348,9 @@ def build_block_model(inputs: OptimizationInputs, objective: Objective) -> Block
         UnsupportedModelError: objective, device kind not supported yet, ``min_run_min`` off
             the 15-min grid (devices built without ``parse_device``),
             a device of an unknown household, or a load frame not on the index of the inputs.
-        units.FrameValidationError: PV or load frames not in the internal format.
+        units.FrameValidationError: PV, load, price or co2 frames not in the internal format.
+        economics.CostInputError, economics.EmissionInputError: prices (``min_cost``) or co2
+            (``min_co2``) with the wrong column, another index or negative intensity.
         BlockSolveError: a program task has no start whose run fits into its window, or a
             ``min_run_min`` is longer than the window of a task.
     """
@@ -295,9 +364,12 @@ def build_block_model(inputs: OptimizationInputs, objective: Objective) -> Block
     load = _inflexible_total(inputs)
     n = len(index)
 
+    weights = objective_weights(inputs, objective)
+
     problem = pulp.LpProblem("block", pulp.LpMaximize)
     device_vars: dict[str, dict[str, DeviceVars]] = {}
     flexible: list[list[Any]] = [[] for _ in range(n)]
+    flexible_cap = np.zeros(n, dtype=float)
     for h_pos, (household_id, devices) in enumerate(inputs.devices.items()):
         device_vars[household_id] = {}
         for d_pos, device in enumerate(devices):
@@ -319,13 +391,68 @@ def build_block_model(inputs: OptimizationInputs, objective: Objective) -> Block
             for t, item in enumerate(row):
                 if not isinstance(item, float):
                     flexible[t].append(item)
+                    flexible_cap[t] += cap
             device_vars[household_id][device.id] = DeviceVars(row, cap, tuple(spans))
 
     shared = [pulp.LpVariable(f"shared_{t}", lowBound=0.0, upBound=float(pv[t])) for t in range(n)]
+    total_load = [float(load[t]) + pulp.lpSum(flexible[t]) for t in range(n)]
+    load_max = [float(v) for v in load + flexible_cap]
     for t in range(n):
-        problem += shared[t] <= float(load[t]) + pulp.lpSum(flexible[t]), f"shared_load_{t}"
-    problem += pulp.lpSum(shared)
+        problem += shared[t] <= total_load[t], f"shared_load_{t}"
+        if weights.shared_weight[t] < 0.0 and pv[t] > 0.0:
+            _force_shared_to_minimum(
+                problem,
+                t,
+                shared[t],
+                total_load[t],
+                pv=float(pv[t]),
+                inflexible=float(load[t]),
+                load_max=load_max[t],
+            )
+    problem += (
+        pulp.lpSum(float(weights.shared_weight[t]) * shared[t] for t in range(n))
+        - pulp.lpSum(float(weights.load_weight[t]) * total_load[t] for t in range(n))
+        + float(np.dot(weights.pv_weight, pv))
+    )
     return BlockModel(problem=problem, index=index, device_vars=device_vars)
+
+
+def _force_shared_to_minimum(
+    problem: pulp.LpProblem,
+    t: int,
+    shared: Any,
+    total_load: Any,
+    *,
+    pv: float,
+    inflexible: float,
+    load_max: float,
+) -> None:
+    """Force ``shared = min(pv, load)`` where sharing has a negative value.
+
+    ``shared ≤ pv`` and ``shared ≤ load`` exist already. With a negative value (min_cost with
+    very negative spot prices) the objective pushes ``shared`` down, but the balance always
+    shares ``min(pv, load)``.
+
+    * ``inflexible ≥ pv``: the minimum is ``pv`` whatever the devices do → ``shared ≥ pv``.
+    * ``load_max ≤ pv`` (``load_max`` = inflexible load + caps of all devices that may run at
+      ``t``): the minimum is the load → ``shared ≥ load``.
+    * otherwise a binary ``b`` ("PV is the smaller side"): ``b = 1``: ``shared ≥ pv``;
+      ``b = 0``: ``shared ≥ load``, big-M = ``load_max - pv``. Below
+      :data:`SHARED_BINARY_MIN_KWH` of PV the binary is left out (CBC declares such models
+      infeasible, see constant).
+    """
+    if inflexible >= pv:
+        problem += shared >= pv, f"shared_is_pv_{t}"
+        return
+    if load_max <= pv:
+        problem += shared >= total_load, f"shared_is_load_{t}"
+        return
+    if pv < SHARED_BINARY_MIN_KWH:
+        return
+    big_m = load_max - pv
+    pv_smaller = pulp.LpVariable(f"pv_smaller_{t}", cat=pulp.LpBinary)
+    problem += shared >= pv * pv_smaller, f"shared_min_pv_{t}"
+    problem += shared >= total_load - big_m * pv_smaller, f"shared_min_load_{t}"
 
 
 def _value(item: Any) -> float:
@@ -477,8 +604,10 @@ __all__ = [
     "BlockModel",
     "BlockSolveError",
     "DeviceVars",
+    "ObjectiveWeights",
     "TaskSpan",
     "UnsupportedModelError",
     "build_block_model",
+    "objective_weights",
     "solve_block",
 ]

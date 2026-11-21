@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-21 – F4-04 – UI: Geräte je Haushalt bearbeiten
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Konfigurationsseite: je Haushalt Aufklapper „Geräte Haushalt N“ mit ID, Art, Leistung, Energie/Tag bzw. Dauer, Fenster Beginn/Ende, Baseline-Start (Uhrzeit-Auswahl im 15-min-Raster), „Gerät N entfernen“ und „Gerät hinzufügen“ aus Vorlagen. `config_store`: `DEVICE_PRESETS`, `new_device` (freie ID `<vorlage>_2`), `validate_devices` (devices_for + Baseline übers Jahr, DST-Fehler als ConfigError mit Pfad), von `apply_edits` aufgerufen. Tests: `tests/unit/test_config_store_devices.py`, AppTests in `test_configuration_page.py` (hinzufügen, entfernen, bearbeiten, Art wechseln, Fehler, versteckte Optionen bleiben, Verkleinern), `tests/e2e/test_device_editing.py` (Waschmaschine speichern + neu laden, 500 kWh → deutsche Meldung, entfernen). architecture.md §6 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (nit): `_single_device` ist lang (~75 Zeilen). `min_run_min`/`min_power_kw` haben keine Widgets (bleiben erhalten). Speichern dauert durch die Baseline-Prüfung ca. 0,3 s.
+- Fehlertypen: e2e-flaky-rerun
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-01).
+
 ## 2026-11-19 – F4-03 – Geräte in der Beispielgemeinschaft
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: `config/example_community.yaml` und `_offline.yaml` haben jetzt gleiche, kommentierte Geräte. hh01: E-Auto + Waschmaschine, hh02: Geschirrspüler, hh03: Wärmepumpe + Geschirrspüler, hh04: Boiler + Waschmaschine, hh05: alle fünf. Die Wärmepumpe ist `modulating`, läuft 10–16 Uhr und hat einen Kommentar zur Vereinfachung (spec §7.2). `min_power_kw`/`min_run_min` sind nicht gesetzt. Tests: `tests/unit/test_example_devices.py` (Laden, Arten, Wärmepumpe inkl. Kommentar, keine Mindestleistung, online = offline, Baseline über ganz 2023 inkl. DST). `test_devices_flow_into_baseline_balance` entfernt jetzt erst die Beispielgeräte. `_UNIT_HINTS` kennt `kW`/`Minuten`.

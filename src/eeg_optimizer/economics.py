@@ -132,10 +132,15 @@ def value_shared_ct_per_kwh(tariffs: TariffConfig) -> float:
     )
 
 
-def _energy_price_ct_per_kwh(
+def energy_price_ct_per_kwh(
     index: pd.DatetimeIndex, tariffs: TariffConfig, prices: pd.DataFrame | None
 ) -> npt.NDArray[np.float64]:
-    """Supplier energy price of the grid import per interval (fixed or spot + markup)."""
+    """Supplier energy price of the grid import per interval (fixed or spot + markup).
+
+    Raises:
+        CostInputError: wrong price columns or an index other than ``index``.
+        units.FrameValidationError: ``prices`` violates the internal time series format.
+    """
     if prices is None:
         return np.full(len(index), tariffs.energy_price, dtype=float)
     if list(prices.columns) != [SPOT_COLUMN]:
@@ -147,6 +152,19 @@ def _energy_price_ct_per_kwh(
     if not prices.index.equals(index):
         raise CostInputError("prices have a different index than the balance")
     return prices[SPOT_COLUMN].to_numpy(dtype=float) + tariffs.spot_markup
+
+
+def import_price_ct_per_kwh(
+    index: pd.DatetimeIndex, tariffs: TariffConfig, prices: pd.DataFrame | None
+) -> npt.NDArray[np.float64]:
+    """Full price of one kWh grid import per interval: energy + grid fee + levies/taxes."""
+    energy = energy_price_ct_per_kwh(index, tariffs, prices)
+    return energy + tariffs.grid_fee_energy + tariffs.levies_taxes
+
+
+def community_shared_price_ct_per_kwh(tariffs: TariffConfig) -> float:
+    """Price of one shared kWh in the community view: reduced grid fee + levies/taxes."""
+    return reduced_grid_fee_ct_per_kwh(tariffs) + tariffs.levies_taxes
 
 
 def _check_balance(balance: pd.DataFrame, error: type[ValueError] = CostInputError) -> None:
@@ -211,10 +229,8 @@ def community_costs(
     """
     _check_balance(balance)
     index = pd.DatetimeIndex(balance.index)
-    energy = _energy_price_ct_per_kwh(index, tariffs, prices)
-
-    full_price = energy + tariffs.grid_fee_energy + tariffs.levies_taxes
-    community_shared_price = reduced_grid_fee_ct_per_kwh(tariffs) + tariffs.levies_taxes
+    full_price = import_price_ct_per_kwh(index, tariffs, prices)
+    community_shared_price = community_shared_price_ct_per_kwh(tariffs)
 
     import_cost = ct_to_eur(balance[GRID_IMPORT_COLUMN].to_numpy(dtype=float) * full_price)
     shared_cost = ct_to_eur(balance[SHARED_COLUMN].to_numpy(dtype=float) * community_shared_price)
@@ -260,9 +276,8 @@ def costs(
     household_frames = _household_frames(allocation, balance)
 
     index = pd.DatetimeIndex(balance.index)
-    energy = _energy_price_ct_per_kwh(index, tariffs, prices)
     reduced_grid_fee = reduced_grid_fee_ct_per_kwh(tariffs)
-    full_price = energy + tariffs.grid_fee_energy + tariffs.levies_taxes
+    full_price = import_price_ct_per_kwh(index, tariffs, prices)
     internal_price = tariffs.eeg_internal_price + reduced_grid_fee + tariffs.levies_taxes
 
     rows: dict[str, Mapping[str, float]] = {}
@@ -327,7 +342,13 @@ class EmissionResult:
         return KgCO2(float(per_household[household_id]))
 
 
-def _co2_intensity_g_per_kwh(co2: pd.DataFrame, index: pd.DatetimeIndex) -> npt.NDArray[np.float64]:
+def co2_intensity_g_per_kwh(co2: pd.DataFrame, index: pd.DatetimeIndex) -> npt.NDArray[np.float64]:
+    """Validated grid carbon intensity per interval of ``index``.
+
+    Raises:
+        EmissionInputError: wrong co2 column, an index other than ``index`` or a negative value.
+        units.FrameValidationError: ``co2`` violates the internal time series format.
+    """
     if list(co2.columns) != [CO2_INTENSITY_COLUMN]:
         raise EmissionInputError(
             f"co2 must have exactly the column {CO2_INTENSITY_COLUMN!r}, "
@@ -360,7 +381,7 @@ def community_emissions(balance: pd.DataFrame, co2: pd.DataFrame) -> pd.DataFram
     """
     _check_balance(balance, EmissionInputError)
     index = pd.DatetimeIndex(balance.index)
-    intensity = _co2_intensity_g_per_kwh(co2, index)
+    intensity = co2_intensity_g_per_kwh(co2, index)
     per_interval = g_to_kg_co2(balance[GRID_IMPORT_COLUMN].to_numpy(dtype=float) * intensity)
     community = pd.DataFrame({EMISSIONS_COLUMN: per_interval}, index=index)
     validate_frame(community)
@@ -387,7 +408,7 @@ def emissions(balance: pd.DataFrame, allocation: pd.DataFrame, co2: pd.DataFrame
     """
     community = community_emissions(balance, co2)
     household_frames = _household_frames(allocation, balance, EmissionInputError)
-    intensity = _co2_intensity_g_per_kwh(co2, pd.DatetimeIndex(balance.index))
+    intensity = co2_intensity_g_per_kwh(co2, pd.DatetimeIndex(balance.index))
     per_interval = community[EMISSIONS_COLUMN].to_numpy(dtype=float)
 
     rows = {
@@ -422,10 +443,14 @@ __all__ = [
     "EmissionInputError",
     "EmissionResult",
     "TariffKind",
+    "co2_intensity_g_per_kwh",
     "community_costs",
     "community_emissions",
+    "community_shared_price_ct_per_kwh",
     "costs",
     "emissions",
+    "energy_price_ct_per_kwh",
+    "import_price_ct_per_kwh",
     "reduced_grid_fee_ct_per_kwh",
     "value_shared_ct_per_kwh",
 ]

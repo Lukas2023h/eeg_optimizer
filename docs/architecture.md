@@ -205,8 +205,16 @@ def solve_block(inputs: OptimizationInputs, objective: Objective, time_limit_s: 
 # on_t ≥ Σ der Starts der letzten m Intervalle, keine Starts in den letzten m−1 Intervallen des
 # Fensters; m > Fenster (Frühjahrs-DST) → BlockSolveError beim Aufbau. Nicht aufteilbare Energie
 # (z. B. 1 kWh bei ≥ 4,1 kW) → CBC „Infeasible“ → BlockSolveError. Die Reparatur der CBC-Rundung
-# bleibt bei on = 1 in [floor, cap] und setzt on = 0 exakt auf 0. min_cost/min_co2 (F5-05) →
-# UnsupportedModelError (nie ignoriert).
+# bleibt bei on = 1 in [floor, cap] und setzt on = 0 exakt auf 0.
+# Ziele (F5-05): objective_weights(inputs, objective) -> ObjectiveWeights(shared_weight, load_weight,
+# pv_weight) je Intervall; LP-Ziel = Σ shared·w_s − Σ load·w_l + Σ pv·w_pv (Konstante inklusive), also
+# genau evaluate(). Koeffizienten aus economics (import_price_ct_per_kwh, community_shared_price_ct_per_kwh,
+# co2_intensity_g_per_kwh): min_cost w_l = Bezugspreis (Spot + Aufschlag + Netzentgelt + Abgaben) in €,
+# w_pv = Einspeisetarif, w_s = Bezugspreis − (ermäßigtes Netzentgelt + Abgaben) − Einspeisetarif;
+# min_co2 w_s = w_l = Intensität in kg/kWh. Ist w_s < 0 (Spot < ca. −2 ct), erzwingt das Modell
+# shared = min(pv, load) (sonst teilte der Solver weniger als die Bilanz): Konstante Fälle ohne
+# Binärvariable, offene Fälle mit Binärvariable/Big-M, PV < SHARED_BINARY_MIN_KWH (1e-6) ausgelassen
+# (CBC-Toleranz, Fehler < 1e-6 €). Unbekanntes Ziel → UnsupportedModelError.
 # CBC-Status ≠ Optimal → BlockSolveError (Runner fängt). CBC liefert ~8 signifikante Stellen, daher
 # reskaliert solve_block jede modulierende Aufgabe auf die exakte Energie (> 1e-4 kWh → BlockSolveError).
 
@@ -251,6 +259,7 @@ Die Quellen holen über HTTP nur, wenn der Cache fehlt (`data/cache/<source>/<ke
   - `max_shared`: max Σ shared_t
   - `min_cost`: min Σ import_t·(spot_t + markup + Netzentgelt + Abgaben) + Σ shared_t·(ermäßigtes Netzentgelt + Abgaben) − Σ export_t·Einspeisetarif
   - `min_co2`: min Σ import_t·co2_t
+  - Umsetzung (F5-05): Import und Export werden über `import = load − shared`, `export = pv − shared` eliminiert, das Ziel hängt dann nur von `shared` und `load` ab. Bei negativem Wert eines geteilten kWh (sehr negativer Spotpreis) wird `shared = min(pv, load)` erzwungen, damit Modell und Bilanz übereinstimmen (Details §4 `optimize/milp.py`).
 - **Variablen:** `modulating` → kontinuierlich pro Intervall (plus Binärvariablen nur bei `min_run_min`/`min_power_kw`). `program` → eine Binärvariable pro möglichem Start.
 - **Zerlegung (INV-5):** Es wird tageweise gelöst. Ein Block umfasst alle Aufgaben, deren Fenster an Tag d beginnt, mit Horizont bis zum spätesten Fensterende (≤ 48 h). Bereits eingeplante Lasten früherer Blöcke gehen als feste Last ein. Die Blöcke sind unabhängig genug für die Parallelisierung per `concurrent.futures` (optional). Erwartet werden ca. 365 kleine MILPs.
 - **Garantie INV-3:** Der Runner bewertet Baseline und Ergebnis mit derselben Zielfunktion pro Block. Ist das Ergebnis schlechter oder scheitert der Solver (Timeout, infeasible), greift die Greedy-Heuristik und notfalls der Baseline-Fahrplan des Blocks. `Schedule.fallback_blocks` (Liste mit Datum und Grund) und `Schedule.fallback_ratio` werden im Ergebnis und in der UI ausgewiesen, also nie stillschweigend. Ein Test verlangt `fallback_ratio == 0` für das Standardszenario, und der Evaluator wertet einen Rückfall dort als FAIL.

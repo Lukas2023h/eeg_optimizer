@@ -461,7 +461,7 @@
       "Handbeispiel min_co2: ohne PV landet die Last im CO2-ärmsten Intervall",
       "INV-3 Property-Test für beide Ziele"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5-06",

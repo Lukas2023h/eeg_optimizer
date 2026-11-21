@@ -149,9 +149,11 @@ def test_large_energy_deviation_is_an_error_not_repaired() -> None:
 
 
 def test_unsupported_objective_is_rejected() -> None:
+    # Since F5-05 min_cost/min_co2 are part of the model (see test_milp_objectives.py); an
+    # unknown name is still rejected, never treated as max_shared.
     inputs = _inputs(_surplus_12_to_13(), (_boiler(),))
-    with pytest.raises(UnsupportedModelError, match="min_cost"):
-        solve_block(inputs, "min_cost")
+    with pytest.raises(UnsupportedModelError, match="max_cost"):
+        solve_block(inputs, "max_cost")  # type: ignore[arg-type]
 
 
 def test_program_devices_are_planned_not_ignored() -> None:

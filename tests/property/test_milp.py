@@ -1,7 +1,8 @@
 """Property tests for the block (MI)LP: INV-2 (device constraints) and INV-3 (never worse).
 
 F5-02: modulating devices only; F5-03: mixed with program devices (start binaries);
-F5-04: modulating devices with min_power_kw / min_run_min.
+F5-04: modulating devices with min_power_kw / min_run_min; F5-05: objectives min_cost and
+min_co2 with random (also negative) spot prices and carbon intensity.
 """
 
 from __future__ import annotations
@@ -11,13 +12,17 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pulp
+import pytest
 from hypothesis import HealthCheck, event, given, settings
 from hypothesis import strategies as st
 
 from eeg_optimizer.config import TariffConfig
 from eeg_optimizer.devices import Device, ModulatingDevice, ProgramDevice, parse_device, tasks
-from eeg_optimizer.optimize.milp import solve_block
+from eeg_optimizer.optimize.milp import build_block_model, solve_block
 from eeg_optimizer.optimize.objectives import (
+    OBJECTIVES,
+    Objective,
     OptimizationInputs,
     baseline_device_schedule,
     evaluate,
@@ -149,7 +154,11 @@ def mixed_devices(draw: st.DrawFn, device_id: str) -> Device:
 
 @st.composite
 def block_inputs(
-    draw: st.DrawFn, *, with_programs: bool = False, with_min_options: bool = False
+    draw: st.DrawFn,
+    *,
+    with_programs: bool = False,
+    with_min_options: bool = False,
+    random_signals: bool = False,
 ) -> OptimizationInputs:
     first = draw(first_days)
     n_days = draw(st.integers(1, 2))
@@ -171,11 +180,20 @@ def block_inputs(
         if with_min_options:
             kind = min_option_devices
         devices[household_id] = tuple(draw(kind(f"d{k}")) for k in range(n_devices))
+    spot = np.full(n, 10.0)
+    co2 = np.full(n, 100.0)
+    if random_signals:
+        # Hourly steps like aWATTar; spot down to -60 ct makes the value of a shared kWh
+        # negative (binaries for shared = min(pv, load), see milp module docstring).
+        hours = (n + 3) // 4
+        spot = np.repeat(draw(st.lists(st.floats(-60.0, 60.0), min_size=hours, max_size=hours)), 4)
+        co2 = np.repeat(draw(st.lists(st.floats(0.0, 300.0), min_size=hours, max_size=hours)), 4)
+        spot, co2 = spot[:n], co2[:n]
     return OptimizationInputs(
         pv=pd.DataFrame({"pv_kwh": pv}, index=index),
         loads=loads,
-        prices=pd.DataFrame({"spot_ct_per_kwh": np.full(n, 10.0)}, index=index),
-        co2=pd.DataFrame({"co2_g_per_kwh": np.full(n, 100.0)}, index=index),
+        prices=pd.DataFrame({"spot_ct_per_kwh": spot}, index=index),
+        co2=pd.DataFrame({"co2_g_per_kwh": co2}, index=index),
         tariffs=_TARIFFS,
         devices=devices,
     )
@@ -305,3 +323,42 @@ def test_inv3_mixed_devices_never_worse_than_the_baseline(inputs: OptimizationIn
     optimized = evaluate(schedule, inputs, "max_shared")
     baseline = evaluate(baseline_device_schedule(inputs), inputs, "max_shared")
     assert optimized >= baseline - TOL
+
+
+@pytest.mark.parametrize("objective", ["min_cost", "min_co2"])
+@_SETTINGS
+@given(inputs=block_inputs(with_programs=True, random_signals=True))
+def test_inv3_cost_and_co2_never_worse_than_the_baseline(
+    objective: Objective, inputs: OptimizationInputs
+) -> None:
+    schedule = solve_block(inputs, objective)
+
+    optimized = evaluate(schedule, inputs, objective)
+    baseline = evaluate(baseline_device_schedule(inputs), inputs, objective)
+    if optimized > baseline + TOL:
+        event("strictly better than the baseline")
+    # TOL in € resp. kg CO₂: the repaired schedule differs from the LP optimum by ~1e-7 kWh.
+    assert optimized >= baseline - TOL
+
+
+@pytest.mark.parametrize("objective", OBJECTIVES)
+@_SETTINGS
+@given(inputs=block_inputs(with_programs=True, random_signals=True))
+def test_optimal_model_value_is_the_score_of_the_schedule(
+    objective: Objective, inputs: OptimizationInputs
+) -> None:
+    # The model objective must be evaluate() itself, also where sharing has a negative value
+    # (spot < -2 ct here); otherwise "optimal" would optimize something else.
+    model = build_block_model(inputs, objective)
+    model.problem.solve(pulp.PULP_CBC_CMD(msg=False))
+
+    score = evaluate(solve_block(inputs, objective), inputs, objective)
+    value = pulp.value(model.problem.objective)
+    if value is None:
+        # PuLP drops zero terms: all weights 0 (no PV, zero intensity) leaves an empty
+        # objective without value. Then every schedule must score 0 as well.
+        event("empty objective")
+        value = 0.0
+    # CBC values carry ~8 significant digits (CLAUDE.md solver-precision), summed over
+    # up to 192 intervals and several devices.
+    assert value == pytest.approx(score, rel=1e-7, abs=1e-5)

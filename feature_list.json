@@ -477,7 +477,7 @@
       "Greedy ist nie besser als MILP auf kleinen Instanzen (Property-Test, Toleranz 1e-6) – Plausibilitätscheck beider Verfahren",
       "Laufzeit 15 Haushalte × 1 Tag < 0,5 s"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5-07",

@@ -173,7 +173,13 @@ def _check_supported(inputs: OptimizationInputs, objective: Objective) -> None:
                 )
 
 
-def _inflexible_total(inputs: OptimizationInputs) -> np.ndarray:
+def inflexible_total(inputs: OptimizationInputs) -> npt.NDArray[np.float64]:
+    """Sum of all inflexible household loads per interval (kWh); also used by greedy.
+
+    Raises:
+        UnsupportedModelError: a load frame without exactly ``load_kwh`` on the input index.
+        units.FrameValidationError: a load frame not in the internal format.
+    """
     index = inputs.index
     total = np.zeros(len(index), dtype=float)
     for household_id, frame in inputs.loads.items():
@@ -361,7 +367,7 @@ def build_block_model(inputs: OptimizationInputs, objective: Objective) -> Block
     validate_frame(inputs.pv)
     index = inputs.index
     pv = inputs.pv[PV_COLUMN].to_numpy(dtype=float)
-    load = _inflexible_total(inputs)
+    load = inflexible_total(inputs)
     n = len(index)
 
     weights = objective_weights(inputs, objective)
@@ -608,6 +614,7 @@ __all__ = [
     "TaskSpan",
     "UnsupportedModelError",
     "build_block_model",
+    "inflexible_total",
     "objective_weights",
     "solve_block",
 ]

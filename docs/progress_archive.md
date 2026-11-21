@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-21 – F5-01 – Zielfunktionen und Bewertung
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Neues Paket `src/eeg_optimizer/optimize/` mit `objectives.py`: `Objective`/`OBJECTIVES`, `DeviceSchedule`, `OptimizationInputs` (+ `from_community`), `schedule_loads`, `score_balance`, `evaluate` (höher = besser), `baseline_device_schedule`, `ObjectiveInputError`. `economics.py`: Gemeinschaftssicht als `community_costs` und `community_emissions` herausgelöst (von `costs`/`emissions` genutzt). Tests: `tests/unit/test_objectives.py` (Mini-Beispiel 3 Fahrpläne × 3 Ziele handberechnet, Rangfolge je Ziel, Spot statt Fixpreis, Baseline-Wert = berichtete Kennzahlen des Offline-Beispiels, Fehlerfälle). architecture.md §4 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor): `costs`/`emissions` berechnen Energiepreis bzw. CO₂-Intensität doppelt (einmal in `community_*`). Kein Property-Test für Schranken des Scores (INV-3-Property kommt mit F5-02).
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-02).
+
 ## 2026-11-21 – F4-04 – UI: Geräte je Haushalt bearbeiten
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: Konfigurationsseite: je Haushalt Aufklapper „Geräte Haushalt N“ mit ID, Art, Leistung, Energie/Tag bzw. Dauer, Fenster Beginn/Ende, Baseline-Start (Uhrzeit-Auswahl im 15-min-Raster), „Gerät N entfernen“ und „Gerät hinzufügen“ aus Vorlagen. `config_store`: `DEVICE_PRESETS`, `new_device` (freie ID `<vorlage>_2`), `validate_devices` (devices_for + Baseline übers Jahr, DST-Fehler als ConfigError mit Pfad), von `apply_edits` aufgerufen. Tests: `tests/unit/test_config_store_devices.py`, AppTests in `test_configuration_page.py` (hinzufügen, entfernen, bearbeiten, Art wechseln, Fehler, versteckte Optionen bleiben, Verkleinern), `tests/e2e/test_device_editing.py` (Waschmaschine speichern + neu laden, 500 kWh → deutsche Meldung, entfernen). architecture.md §6 ergänzt.

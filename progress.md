@@ -72,7 +72,18 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 
 - F5-07/F5-09: Bei min_cost mit sehr negativen Spotpreisen (Wert eines geteilten kWh < 0) erzwingt das MILP `shared = min(pv, load)`, offene Intervalle bekommen eine Binärvariable (Big-M) → mehr MIP-Anteil; Laufzeit im Jahreslauf (INV-5) beobachten. Unter `SHARED_BINARY_MIN_KWH` (1e-6 kWh PV) bewusst ausgelassen, Abweichung zu `evaluate` < 1e-6 € (akzeptiert, nicht gezählt). (F5-05)
 
+- F5-07: `optimize.greedy.solve_greedy(inputs, objective)` hat dieselbe Schnittstelle wie `solve_block` (Block-Inputs, Ergebnis hh → Gerät → Series `device_kwh`), läuft in ~40 ms für 15 Haushalte × 48 h. Ergebnis erfüllt INV-2 (auch Programme/min-Optionen), ist nie besser als das MILP, garantiert aber **nicht** INV-3 → Runner vergleicht mit der Baseline. Nicht platzierbare Aufgabe (Frühjahrs-DST, nicht aufteilbare Energie) → `GreedyScheduleError`, zählt als Rückfall auf Baseline. `solver: greedy` → nur `solve_greedy`. (F5-06)
+
 ---
+
+## 2026-11-21 – F5-06 – Greedy-Heuristik
+- Ergebnis: PASS (Evaluator PASS, Reviewer: 1 major behoben)
+- Gemacht: Neues Modul `optimize/greedy.py`: `solve_greedy` (Aufgaben nach Schlupf sortiert, Wert je kWh aus `milp.objective_weights`; modulierend: Wasserfüllung; Programm: bester Start; min-Optionen: ein Lauf mit k Intervallen à E/k, bestes (k, Start)), `GreedyScheduleError`, Toleranzen `ENERGY_NOISE_KWH`/`BOUND_NOISE_KWH`. `milp._inflexible_total` → öffentlich `inflexible_total`. Tests: `tests/unit/test_greedy.py` (Handbeispiele je Ziel/Geräteart, Reihenfolge nach Flexibilität, Werte genau auf floor/cap, Fehler), `tests/property/test_greedy.py` (INV-2 alle Gerätearten × Ziele, Greedy ≤ MILP inkl. min-Optionen), `tests/perf/test_greedy_perf.py` (slow, 15 Haushalte × 48 h: 0,04 s). architecture.md §4/§5 ergänzt (Flexibilität = Schlupf statt Fensterlänge).
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Greedy-≤-MILP mit min-Optionen verwirft Beispiele, bei denen CBC das 20-s-Zeitlimit erreicht (nur diese, sonst Fehler); Laufzeit des Tests 4–11 s, check.sh-Gesamtlaufzeit schwankte (93 s / 186 s). Property-Test importiert Strategien aus `tests/property/test_milp.py` (bei Gelegenheit in ein Strategien-Modul auslagern). Rückgabetyp `dict[...]` statt Alias `DeviceSchedule` (wie `solve_block`).
+- Fehlertypen: solver-precision, spec-abweichung
+- Anmerkung: Reviewer-major: Untergrenze `floor ≤ E/k` ohne Toleranz (0,3/3 < 0,1) → gültiges k verworfen; behoben mit `BOUND_NOISE_KWH` + Tests genau auf floor und cap. Abweichung: Sortierung nach Schlupf statt Fensterlänge (architecture §5 nachgezogen, Begründungstest).
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-07).
 
 ## 2026-11-21 – F5-05 – MILP: Ziele Kosten und CO2
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -110,11 +121,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Fehlertypen: solver-precision
 - Anmerkung: Eigener Bug, vom Property-Test gefunden. Die CBC-Rundung verfehlte die Tagesenergie um 1e-6 kWh.
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-03).
-
-## 2026-11-21 – F5-01 – Zielfunktionen und Bewertung
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: Neues Paket `src/eeg_optimizer/optimize/` mit `objectives.py`: `Objective`/`OBJECTIVES`, `DeviceSchedule`, `OptimizationInputs` (+ `from_community`), `schedule_loads`, `score_balance`, `evaluate` (höher = besser), `baseline_device_schedule`, `ObjectiveInputError`. `economics.py`: Gemeinschaftssicht als `community_costs` und `community_emissions` herausgelöst (von `costs`/`emissions` genutzt). Tests: `tests/unit/test_objectives.py` (Mini-Beispiel 3 Fahrpläne × 3 Ziele handberechnet, Rangfolge je Ziel, Spot statt Fixpreis, Baseline-Wert = berichtete Kennzahlen des Offline-Beispiels, Fehlerfälle). architecture.md §4 ergänzt.
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor): `costs`/`emissions` berechnen Energiepreis bzw. CO₂-Intensität doppelt (einmal in `community_*`). Kein Property-Test für Schranken des Scores (INV-3-Property kommt mit F5-02).
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-02).

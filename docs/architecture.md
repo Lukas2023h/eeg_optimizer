@@ -217,6 +217,14 @@ def solve_block(inputs: OptimizationInputs, objective: Objective, time_limit_s: 
 # (CBC-Toleranz, Fehler < 1e-6 €). Unbekanntes Ziel → UnsupportedModelError.
 # CBC-Status ≠ Optimal → BlockSolveError (Runner fängt). CBC liefert ~8 signifikante Stellen, daher
 # reskaliert solve_block jede modulierende Aufgabe auf die exakte Energie (> 1e-4 kWh → BlockSolveError).
+# inflexible_total(inputs) -> Summe der unflexiblen Lasten je Intervall (auch von greedy genutzt).
+
+# optimize/greedy.py (F5-06, Vergleich und Rückfall, Details §5 „Greedy“)
+def solve_greedy(inputs: OptimizationInputs, objective: Objective) -> dict[str, dict[str, pd.Series]]
+# Gleiche Schnittstelle wie solve_block (inputs auf den Block geschnitten, Series device_kwh). Fehler:
+# GreedyScheduleError (Aufgabe passt nicht ins Fenster), ObjectiveInputError (Geräte ohne Haushaltslast),
+# UnsupportedModelError (unbekanntes Ziel). Toleranzen: ENERGY_NOISE_KWH (1e-9, Rest bei vollem Fenster),
+# BOUND_NOISE_KWH (1e-12, E/k durch Division knapp unter floor bzw. über cap → auf die Schranke gesetzt).
 
 # optimize/runner.py
 def optimize(inputs: OptimizationInputs, objective: Objective, solver: Literal["milp","greedy"]) -> Schedule
@@ -264,6 +272,7 @@ Die Quellen holen über HTTP nur, wenn der Cache fehlt (`data/cache/<source>/<ke
 - **Zerlegung (INV-5):** Es wird tageweise gelöst. Ein Block umfasst alle Aufgaben, deren Fenster an Tag d beginnt, mit Horizont bis zum spätesten Fensterende (≤ 48 h). Bereits eingeplante Lasten früherer Blöcke gehen als feste Last ein. Die Blöcke sind unabhängig genug für die Parallelisierung per `concurrent.futures` (optional). Erwartet werden ca. 365 kleine MILPs.
 - **Garantie INV-3:** Der Runner bewertet Baseline und Ergebnis mit derselben Zielfunktion pro Block. Ist das Ergebnis schlechter oder scheitert der Solver (Timeout, infeasible), greift die Greedy-Heuristik und notfalls der Baseline-Fahrplan des Blocks. `Schedule.fallback_blocks` (Liste mit Datum und Grund) und `Schedule.fallback_ratio` werden im Ergebnis und in der UI ausgewiesen, also nie stillschweigend. Ein Test verlangt `fallback_ratio == 0` für das Standardszenario, und der Evaluator wertet einen Rückfall dort als FAIL.
 - **Greedy:** Aufgaben nach Flexibilität sortieren (kleines Fenster zuerst). Energie in die Intervalle mit dem besten Zielwert legen (größter verbleibender Überschuss, niedrigster Preis bzw. niedrigstes CO₂), unter Beachtung von Leistung und Fenster.
+  - Umsetzung (F5-06, `optimize/greedy.py`): Flexibilität = Schlupf = Fensterintervalle − bei voller Leistung benötigte Intervalle (statt reiner Fensterlänge: ein langes Programm in einem kaum längeren Fenster ist unflexibler als eine kurze Aufgabe im gleichen Fenster), danach früheres Fenster, dann Reihenfolge der Eingaben. Belegt durch `tests/unit/test_greedy.py::test_least_flexible_task_is_placed_first` und `test_result_has_every_device_of_every_household`. Der Zielwert je kWh kommt aus `milp.objective_weights` (`shared_weight · min(a, Überschuss) − load_weight · a`), also exakt dieselbe Bewertung wie `evaluate`. Modulierend ohne min-Optionen: Wasserfüllung (bestes Intervall je kWh zuerst, Gleichstand → frühestes). Programm: bester Start eines Laufs. Modulierend mit `min_power_kw`/`min_run_min`: ein zusammenhängender Lauf von k Intervallen mit E/k je Intervall, bestes (k, Start) über alle zulässigen k (vollständig: jede zulässige Aufteilung in mehrere Läufe hat einen gleich langen Einzellauf). Das Ergebnis ist ein zulässiger Punkt des Block-MILP, also nie besser als dessen Optimum; INV-3 garantiert Greedy **nicht** (Runner vergleicht). Nicht platzierbare Aufgabe (Frühjahrs-DST, nicht aufteilbare Energie) → `GreedyScheduleError`.
 
 ## 6. UI (Streamlit)
 

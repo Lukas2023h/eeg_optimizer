@@ -62,9 +62,18 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - INV-4: Aggregierte Kennzahl-Tabellen tragen dimensionslose Anteile mit dem Suffix `_ratio` (architecture.md §3.1). In spec §5 und CLAUDE.md „Einheiten“ ist das noch nicht nachgezogen, `units.ALLOWED_SUFFIXES` kennt `_ratio` nicht (Zeitreihen brauchen es nicht). (F3-02)
 
 - F4-03/F5/F5-07: `devices.tasks(device, index)` liefert die Tagesaufgaben (`Task` mit tz-aware `window_start`/`window_end`/`baseline_start`, `day` = Tag des Fensterbeginns). Nur Aufgaben mit ganzem Fenster im Index zählen (2023: E-Auto 18–07 → 364 Aufgaben); der Optimierer muss dieselbe Menge verwenden, sonst ist der Vergleich unfair. `devices.baseline_schedule` → `device_kwh`, `devices.baseline_loads(loads, devices_for(cfg))` = Baseline-Last; `analysis.analyze` nutzt sie schon. Die Optimierung braucht die **unflexiblen** `CommunityInputs.loads` plus Geräte separat. (F4-02)
+- F5-02..F5-07: `optimize.objectives.evaluate(schedule, inputs, objective)` bewertet einen `DeviceSchedule` (hh → Geräte-ID → Series `device_kwh`), höher = besser (+kWh shared, −€ Gemeinschaftskosten mit Spot-Tarif, −kg CO₂). `OptimizationInputs.from_community(inputs, cfg)` bündelt Zeitreihen, Tarife und `devices_for`. Der Fahrplan muss **genau** die Geräte aus `inputs.devices` enthalten. Für Blöcke die Frames vorher auf den Block-Index schneiden (eine `restrict`-Hilfe gibt es noch nicht). Das MILP muss dieselben Koeffizienten wie `economics.community_costs`/`community_emissions` verwenden. `baseline_device_schedule(inputs)` liefert die Baseline. (F5-01)
 - F5-07 (Rückfall auf Baseline): Der Baseline-Lauf hält `min_power_kw` im letzten Teilintervall und `min_run_min` nicht unbedingt ein. Fällt ein Block auf die Baseline zurück, ist INV-2 dafür nicht garantiert; Runner/Greedy entsprechend prüfen. (F4-02)
 
 ---
+
+## 2026-11-21 – F5-01 – Zielfunktionen und Bewertung
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Neues Paket `src/eeg_optimizer/optimize/` mit `objectives.py`: `Objective`/`OBJECTIVES`, `DeviceSchedule`, `OptimizationInputs` (+ `from_community`), `schedule_loads`, `score_balance`, `evaluate` (höher = besser), `baseline_device_schedule`, `ObjectiveInputError`. `economics.py`: Gemeinschaftssicht als `community_costs` und `community_emissions` herausgelöst (von `costs`/`emissions` genutzt). Tests: `tests/unit/test_objectives.py` (Mini-Beispiel 3 Fahrpläne × 3 Ziele handberechnet, Rangfolge je Ziel, Spot statt Fixpreis, Baseline-Wert = berichtete Kennzahlen des Offline-Beispiels, Fehlerfälle). architecture.md §4 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor): `costs`/`emissions` berechnen Energiepreis bzw. CO₂-Intensität doppelt (einmal in `community_*`). Kein Property-Test für Schranken des Scores (INV-3-Property kommt mit F5-02).
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-02).
 
 ## 2026-11-21 – F4-04 – UI: Geräte je Haushalt bearbeiten
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -97,11 +106,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Offene Probleme (minor/nit): Das Orakel des Property-Tests nutzt dieselbe `kw_to_kwh`-Formel wie die Implementierung. `start == end` wird doppelt geprüft (im Dataclass und im Parser, dort mit deutscher ConfigError-Meldung).
 - Fehlertypen: –
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F4-02).
-
-## 2026-11-19 – F3-06 – UI: Ist-Analyse
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: Neues Modul `src/eeg_optimizer/analysis.py` (`analyze`, `daily_profile` mit mittlerer Leistung je 15-min-Slot, `surplus_by_day_hour` mit Export je Tag und Stunde, `ASSUMPTION_NOTES`). Neue Seite `app/pages/analysis.py` (URL `/ist-analyse`) mit 8 KPI-Kacheln (Quoten in %, Energie in kWh, Kosten in €, CO₂ in kg), Tagesprofil, Monatsbalken und Überschuss-Heatmap (Plotly) sowie einer Hinweisbox. Die Berechnung ist per `st.cache_data` gecacht. `units.kwh_to_kw` kann jetzt auch Arrays. Tests: `tests/unit/test_analysis.py` (Slot-Mittel, Zeitumstellung, Summen, Fehlerfälle, Offline-Beispiel < 10 s) und `tests/e2e/test_analysis_page.py` (Kacheln mit Einheiten, 3 Diagramme, Hinweise, gecachter Aufbau < 10 s). architecture.md §4 und §6 sind ergänzt.
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit): `daily_profile`/`surplus_by_day_hour` prüfen den Eingang über einen `balance.kpis`-Aufruf (eine eigene Validierungsfunktion wäre sauberer). `use_container_width` ist in neueren Streamlit-Versionen veraltet. Das 10-s-Budget im Unit-Test ist eine Wanduhr-Messung. Die E2E-Tests prüfen den Diagramminhalt nicht.
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh`.

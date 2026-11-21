@@ -398,7 +398,7 @@
       "evaluate(schedule, inputs, objective) liefert einen Skalar; Vorzeichenkonvention dokumentiert (höher = besser)",
       "Test mit Mini-Beispiel für alle drei Ziele, Werte handberechnet"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5-02",

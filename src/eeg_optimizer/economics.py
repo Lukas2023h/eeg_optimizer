@@ -197,6 +197,43 @@ def _household_frames(
     return frames
 
 
+def community_costs(
+    balance: pd.DataFrame, tariffs: TariffConfig, prices: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """Community view per interval, columns :data:`COMMUNITY_COST_COLUMNS` (module docstring).
+
+    Needs no allocation: internal payments cancel out in the community view. Used by
+    :func:`costs` and by the objective ``min_cost`` (:mod:`optimize.objectives`).
+
+    Raises:
+        CostInputError: missing balance columns, wrong price columns or differing indices.
+        units.FrameValidationError: an input violates the internal time series format.
+    """
+    _check_balance(balance)
+    index = pd.DatetimeIndex(balance.index)
+    energy = _energy_price_ct_per_kwh(index, tariffs, prices)
+
+    full_price = energy + tariffs.grid_fee_energy + tariffs.levies_taxes
+    community_shared_price = reduced_grid_fee_ct_per_kwh(tariffs) + tariffs.levies_taxes
+
+    import_cost = ct_to_eur(balance[GRID_IMPORT_COLUMN].to_numpy(dtype=float) * full_price)
+    shared_cost = ct_to_eur(balance[SHARED_COLUMN].to_numpy(dtype=float) * community_shared_price)
+    export_revenue = ct_to_eur(
+        balance[EXPORT_COLUMN].to_numpy(dtype=float) * tariffs.feed_in_tariff
+    )
+    community = pd.DataFrame(
+        {
+            GRID_IMPORT_COST_COLUMN: import_cost,
+            SHARED_COST_COLUMN: shared_cost,
+            EXPORT_REVENUE_COLUMN: export_revenue,
+            COMMUNITY_COST_COLUMN: import_cost + shared_cost - export_revenue,
+        },
+        index=index,
+    )
+    validate_frame(community)
+    return community
+
+
 def costs(
     balance: pd.DataFrame,
     allocation: pd.DataFrame,
@@ -219,31 +256,14 @@ def costs(
         units.FrameValidationError: an input (including every household block of the
             allocation, e.g. NaN or negative energy) violates the internal time series format.
     """
-    _check_balance(balance)
-    index = pd.DatetimeIndex(balance.index)
-    energy = _energy_price_ct_per_kwh(index, tariffs, prices)
+    community = community_costs(balance, tariffs, prices)
     household_frames = _household_frames(allocation, balance)
 
+    index = pd.DatetimeIndex(balance.index)
+    energy = _energy_price_ct_per_kwh(index, tariffs, prices)
     reduced_grid_fee = reduced_grid_fee_ct_per_kwh(tariffs)
     full_price = energy + tariffs.grid_fee_energy + tariffs.levies_taxes
-    community_shared_price = reduced_grid_fee + tariffs.levies_taxes
     internal_price = tariffs.eeg_internal_price + reduced_grid_fee + tariffs.levies_taxes
-
-    import_cost = ct_to_eur(balance[GRID_IMPORT_COLUMN].to_numpy(dtype=float) * full_price)
-    shared_cost = ct_to_eur(balance[SHARED_COLUMN].to_numpy(dtype=float) * community_shared_price)
-    export_revenue = ct_to_eur(
-        balance[EXPORT_COLUMN].to_numpy(dtype=float) * tariffs.feed_in_tariff
-    )
-    community = pd.DataFrame(
-        {
-            GRID_IMPORT_COST_COLUMN: import_cost,
-            SHARED_COST_COLUMN: shared_cost,
-            EXPORT_REVENUE_COLUMN: export_revenue,
-            COMMUNITY_COST_COLUMN: import_cost + shared_cost - export_revenue,
-        },
-        index=index,
-    )
-    validate_frame(community)
 
     rows: dict[str, Mapping[str, float]] = {}
     for household_id, frame in household_frames.items():
@@ -327,6 +347,26 @@ def _co2_intensity_g_per_kwh(co2: pd.DataFrame, index: pd.DatetimeIndex) -> npt.
     return intensity
 
 
+def community_emissions(balance: pd.DataFrame, co2: pd.DataFrame) -> pd.DataFrame:
+    """Emissions of the community grid import per interval, column :data:`EMISSIONS_COLUMN`.
+
+    Needs no allocation. Used by :func:`emissions` and by the objective ``min_co2``
+    (:mod:`optimize.objectives`).
+
+    Raises:
+        EmissionInputError: missing balance columns, wrong co2 column, differing indices or
+            negative intensity.
+        units.FrameValidationError: an input violates the internal time series format.
+    """
+    _check_balance(balance, EmissionInputError)
+    index = pd.DatetimeIndex(balance.index)
+    intensity = _co2_intensity_g_per_kwh(co2, index)
+    per_interval = g_to_kg_co2(balance[GRID_IMPORT_COLUMN].to_numpy(dtype=float) * intensity)
+    community = pd.DataFrame({EMISSIONS_COLUMN: per_interval}, index=index)
+    validate_frame(community)
+    return community
+
+
 def emissions(balance: pd.DataFrame, allocation: pd.DataFrame, co2: pd.DataFrame) -> EmissionResult:
     """CO2 emissions of the grid import (spec §7.2), community and per household.
 
@@ -345,14 +385,10 @@ def emissions(balance: pd.DataFrame, allocation: pd.DataFrame, co2: pd.DataFrame
             negative intensity, or an allocation that does not fit the balance (1e-6 kWh).
         units.FrameValidationError: an input violates the internal time series format.
     """
-    _check_balance(balance, EmissionInputError)
-    index = pd.DatetimeIndex(balance.index)
-    intensity = _co2_intensity_g_per_kwh(co2, index)
+    community = community_emissions(balance, co2)
     household_frames = _household_frames(allocation, balance, EmissionInputError)
-
-    per_interval = g_to_kg_co2(balance[GRID_IMPORT_COLUMN].to_numpy(dtype=float) * intensity)
-    community = pd.DataFrame({EMISSIONS_COLUMN: per_interval}, index=index)
-    validate_frame(community)
+    intensity = _co2_intensity_g_per_kwh(co2, pd.DatetimeIndex(balance.index))
+    per_interval = community[EMISSIONS_COLUMN].to_numpy(dtype=float)
 
     rows = {
         household_id: float(
@@ -386,6 +422,8 @@ __all__ = [
     "EmissionInputError",
     "EmissionResult",
     "TariffKind",
+    "community_costs",
+    "community_emissions",
     "costs",
     "emissions",
     "reduced_grid_fee_ct_per_kwh",

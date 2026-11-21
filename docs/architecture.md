@@ -170,6 +170,19 @@ def baseline_schedule(device: Device, index: pd.DatetimeIndex) -> pd.Series   # 
 def baseline_loads(loads: Mapping[str, DataFrame], devices: Mapping[str, Sequence[Device]]) -> dict[str, DataFrame]
 # load_kwh + Σ baseline_schedule je Haushalt; analysis.analyze nutzt das für die Baseline-Bilanz.
 
+# optimize/objectives.py (F5-01)
+Objective = ObjectiveName   # "max_shared" | "min_cost" | "min_co2", OBJECTIVES = alle drei
+DeviceSchedule = Mapping[household_id, Mapping[device_id, pd.Series]]   # device_kwh je Intervall
+# OptimizationInputs (frozen): pv, loads (unflexibel, load_kwh), prices, co2, tariffs, devices
+# (household_id -> tuple[Device]); from_community(CommunityInputs, CommunityConfig). Beliebiger
+# Ausschnitt des Jahres (z. B. ein Block) erlaubt, alle Frames auf einem Index.
+def evaluate(schedule: DeviceSchedule, inputs: OptimizationInputs, objective: Objective) -> float
+# Höher = besser: max_shared = +Σ shared_kwh (kWh), min_cost = −Σ community_cost_eur (€, Spot-Tarif
+# über economics.community_costs), min_co2 = −Σ emissions_kg_co2 (kg, economics.community_emissions).
+# Der Fahrplan muss genau die Geräte aus inputs.devices auf dem Index enthalten, sonst
+# ObjectiveInputError. Hilfen: schedule_loads (Last + Geräte), score_balance(balance, inputs, objective),
+# baseline_device_schedule(inputs). Baseline und Optimierung werden mit derselben Funktion bewertet (INV-3).
+
 # optimize/runner.py
 def optimize(inputs: OptimizationInputs, objective: Objective, solver: Literal["milp","greedy"]) -> Schedule
 

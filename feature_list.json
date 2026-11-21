@@ -414,7 +414,7 @@
       "Handbeispiel: 1 Gerät, PV-Überschuss nur 12–13 Uhr -> Last landet dort",
       "Modell enthält keine Binärvariablen, wenn keine min_run_min/min_power_kw gesetzt (Test)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5-03",

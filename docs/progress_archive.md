@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-19 – F4-01 – Gerätemodell flexibler Lasten
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Neues Modul `src/eeg_optimizer/devices.py` mit `TimeWindow` (über Mitternacht bei end ≤ start), `ModulatingDevice`, `ProgramDevice`, `parse_device`/`parse_devices`/`devices_for`. Die Prüfung nutzt den Section-Reader aus `config.py`, der jetzt öffentlich als `ConfigSection` verfügbar ist und `optional_integer` kennt. Damit gelten dieselben Meldungen mit Schlüsselpfad und unbekannte Schlüssel werden abgelehnt. Tests: `tests/unit/test_devices.py` (YAML-Laden, alle Validierungsfehler, Fenster 18–07/10–16/20–00) und `tests/property/test_devices.py` (Fensterform, Annahme genau bei erreichbarer Energie). architecture.md §4 ist ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Das Orakel des Property-Tests nutzt dieselbe `kw_to_kwh`-Formel wie die Implementierung. `start == end` wird doppelt geprüft (im Dataclass und im Parser, dort mit deutscher ConfigError-Meldung).
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F4-02).
+
 ## 2026-11-19 – F3-06 – UI: Ist-Analyse
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: Neues Modul `src/eeg_optimizer/analysis.py` (`analyze`, `daily_profile` mit mittlerer Leistung je 15-min-Slot, `surplus_by_day_hour` mit Export je Tag und Stunde, `ASSUMPTION_NOTES`). Neue Seite `app/pages/analysis.py` (URL `/ist-analyse`) mit 8 KPI-Kacheln (Quoten in %, Energie in kWh, Kosten in €, CO₂ in kg), Tagesprofil, Monatsbalken und Überschuss-Heatmap (Plotly) sowie einer Hinweisbox. Die Berechnung ist per `st.cache_data` gecacht. `units.kwh_to_kw` kann jetzt auch Arrays. Tests: `tests/unit/test_analysis.py` (Slot-Mittel, Zeitumstellung, Summen, Fehlerfälle, Offline-Beispiel < 10 s) und `tests/e2e/test_analysis_page.py` (Kacheln mit Einheiten, 3 Diagramme, Hinweise, gecachter Aufbau < 10 s). architecture.md §4 und §6 sind ergänzt.

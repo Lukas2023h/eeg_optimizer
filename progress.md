@@ -63,9 +63,19 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 
 - F4-03/F5/F5-07: `devices.tasks(device, index)` liefert die Tagesaufgaben (`Task` mit tz-aware `window_start`/`window_end`/`baseline_start`, `day` = Tag des Fensterbeginns). Nur Aufgaben mit ganzem Fenster im Index zählen (2023: E-Auto 18–07 → 364 Aufgaben); der Optimierer muss dieselbe Menge verwenden, sonst ist der Vergleich unfair. `devices.baseline_schedule` → `device_kwh`, `devices.baseline_loads(loads, devices_for(cfg))` = Baseline-Last; `analysis.analyze` nutzt sie schon. Die Optimierung braucht die **unflexiblen** `CommunityInputs.loads` plus Geräte separat. (F4-02)
 - F5-02..F5-07: `optimize.objectives.evaluate(schedule, inputs, objective)` bewertet einen `DeviceSchedule` (hh → Geräte-ID → Series `device_kwh`), höher = besser (+kWh shared, −€ Gemeinschaftskosten mit Spot-Tarif, −kg CO₂). `OptimizationInputs.from_community(inputs, cfg)` bündelt Zeitreihen, Tarife und `devices_for`. Der Fahrplan muss **genau** die Geräte aus `inputs.devices` enthalten. Für Blöcke die Frames vorher auf den Block-Index schneiden (eine `restrict`-Hilfe gibt es noch nicht). Das MILP muss dieselben Koeffizienten wie `economics.community_costs`/`community_emissions` verwenden. `baseline_device_schedule(inputs)` liefert die Baseline. (F5-01)
+- F5-03/F5-04/F5-05/F5-07: `optimize.milp.build_block_model`/`solve_block(inputs, objective, time_limit_s)` (Block-LP, `inputs` vorher auf den Block schneiden). Erweiterungen in `build_block_model`: `_check_supported` lehnt program, min-Optionen und min_cost/min_co2 bisher mit `UnsupportedModelError` ab, dort jeweils freischalten. `DeviceVars.row` hat je Intervall eine Variable bzw. `0.0`, `spans` die Aufgaben. CBC liefert nur ~8 signifikante Stellen: `_exact_energy` reskaliert je Aufgabe (bei Programmen mit Binärvariablen anders lösen, dort ist das Profil fix). Runner fängt `BlockSolveError` (Status ≠ Optimal, auch Zeitlimit mit nur zulässiger Lösung). Leerer Block-Index wird nicht abgefangen (IndexError). (F5-02)
 - F5-07 (Rückfall auf Baseline): Der Baseline-Lauf hält `min_power_kw` im letzten Teilintervall und `min_run_min` nicht unbedingt ein. Fällt ein Block auf die Baseline zurück, ist INV-2 dafür nicht garantiert; Runner/Greedy entsprechend prüfen. (F4-02)
 
 ---
+
+## 2026-11-21 – F5-02 – MILP für einen Block: modulierende Lasten (LP)
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Neues Modul `src/eeg_optimizer/optimize/milp.py`: `build_block_model` (PuLP-LP: Gerätevariablen nur in Aufgabenfenstern aus `devices.tasks`, Energie je Aufgabe, Leistungsgrenze, `shared ≤ pv`, `shared ≤ Last + Geräte`, max Σ shared), `solve_block` (CBC, Status-/sol_status-Prüfung, Energie-Reparatur der CBC-Rundung), `BlockModel`/`DeviceVars`/`TaskSpan`, `UnsupportedModelError`, `BlockSolveError`. Tests: `tests/unit/test_milp.py` (Handbeispiel 12–13 Uhr, Leistungsgrenze, kein Binär, Variablen nur im Fenster, Reparatur, Ablehnungen) und `tests/property/test_milp.py` (INV-2, INV-3 inkl. DST-Tage, 1–2 Tage, mehrere Haushalte). architecture.md §4 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Leerer Block-Index → IndexError statt eigener Meldung. `DeviceVars.row` als `list[Any]` typisiert (PuLP ohne Stubs). Kein Test mit echtem Zeitlimit-Abbruch.
+- Fehlertypen: solver-precision
+- Anmerkung: Eigener Bug, vom Property-Test gefunden. Die CBC-Rundung verfehlte die Tagesenergie um 1e-6 kWh.
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-03).
 
 ## 2026-11-21 – F5-01 – Zielfunktionen und Bewertung
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -98,11 +108,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Offene Probleme (minor/nit): Randaufgaben (31.12. abends) fallen bewusst weg. `_checked_index` baut einen Wegwerf-DataFrame für `validate_frame`; `_run_energies` ist als bare `np.ndarray` typisiert.
 - Fehlertypen: –
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F4-03).
-
-## 2026-11-19 – F4-01 – Gerätemodell flexibler Lasten
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: Neues Modul `src/eeg_optimizer/devices.py` mit `TimeWindow` (über Mitternacht bei end ≤ start), `ModulatingDevice`, `ProgramDevice`, `parse_device`/`parse_devices`/`devices_for`. Die Prüfung nutzt den Section-Reader aus `config.py`, der jetzt öffentlich als `ConfigSection` verfügbar ist und `optional_integer` kennt. Damit gelten dieselben Meldungen mit Schlüsselpfad und unbekannte Schlüssel werden abgelehnt. Tests: `tests/unit/test_devices.py` (YAML-Laden, alle Validierungsfehler, Fenster 18–07/10–16/20–00) und `tests/property/test_devices.py` (Fensterform, Annahme genau bei erreichbarer Energie). architecture.md §4 ist ergänzt.
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit): Das Orakel des Property-Tests nutzt dieselbe `kw_to_kwh`-Formel wie die Implementierung. `start == end` wird doppelt geprüft (im Dataclass und im Parser, dort mit deutscher ConfigError-Meldung).
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F4-02).

@@ -7,6 +7,7 @@ this page only collects the values and shows the German error messages.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,15 +22,19 @@ from eeg_optimizer.config import (
 )
 from eeg_optimizer.config_store import (
     DEFAULT_CONFIG_PATH,
+    DEVICE_PRESETS,
     SESSION_CONFIG_KEY,
     SESSION_PATH_KEY,
     USER_CONFIG_DIR,
     apply_edits,
     available_configs,
+    new_device,
     resize_households,
     save_user_config,
 )
+from eeg_optimizer.devices import DEVICE_KINDS
 from eeg_optimizer.sources.htw import PROFILE_COUNT
+from eeg_optimizer.units import KW, kw_to_kwh
 
 SELECT_KEY = "config_file_select"
 VERSION_KEY = "config_form_version"
@@ -45,6 +50,11 @@ EEG_TYPE_LABELS = {
     "local": "lokal (Netzebene 6/7, Netzentgelt -57 %)",
     "regional": "regional (Netzebene 4/5, Netzentgelt -28 %)",
 }
+DEVICE_KIND_LABELS = {
+    "modulating": "regelbar (E-Auto, Boiler, Wärmepumpe)",
+    "program": "Programm (Wasch-, Spülmaschine)",
+}
+TIME_OPTIONS = tuple(f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 15, 30, 45))
 TARIFF_FIELDS = (
     ("energy_price", "Energiepreis Lieferant (ct/kWh)"),
     ("grid_fee_energy", "Netzentgelt Arbeit (ct/kWh)"),
@@ -119,6 +129,154 @@ def _household_inputs(raw: dict[str, Any], index: int) -> dict[str, Any]:
     edited = dict(raw)
     edited["id"] = hh_id
     edited["load"] = new_load
+    edited["devices"] = _device_inputs(raw.get("devices", []), index)
+    return edited
+
+
+# ------------------------------------------------------------------ devices (F4-04)
+
+
+def _next_uid() -> int:
+    key = _key("dev_uid")
+    uid: int = st.session_state.get(key, 0)
+    st.session_state[key] = uid + 1
+    return uid
+
+
+def _draft(raw_devices: list[dict[str, Any]], index: int) -> list[dict[str, Any]]:
+    """Device list of household ``index`` under edit: ``[{"uid": int, "raw": dict}]``.
+
+    Kept in session state so adding/removing a device does not reset other widgets;
+    the uid keeps widget keys stable when a device above is removed.
+    """
+    key = _key(f"hh_devices_{index}")
+    if key not in st.session_state:
+        st.session_state[key] = [{"uid": _next_uid(), "raw": dev} for dev in raw_devices]
+    draft: list[dict[str, Any]] = st.session_state[key]
+    return draft
+
+
+def _add_device(index: int) -> None:
+    draft = st.session_state[_key(f"hh_devices_{index}")]
+    preset = st.session_state[_key(f"dev_preset_{index}")]
+    ids = [
+        str(st.session_state.get(_key(f"dev_id_{d['uid']}"), d["raw"].get("id", ""))) for d in draft
+    ]
+    draft.append({"uid": _next_uid(), "raw": new_device(preset, ids)})
+
+
+def _remove_device(index: int, uid: int) -> None:
+    key = _key(f"hh_devices_{index}")
+    st.session_state[key] = [d for d in st.session_state[key] if d["uid"] != uid]
+
+
+def _time_select(container: Any, label: str, value: str, key: str) -> str:
+    options = list(TIME_OPTIONS)
+    if value not in options:  # invalid file value: show it, validation reports it
+        options.insert(0, value)
+    chosen: str = container.selectbox(label, options, index=options.index(value), key=key)
+    return chosen
+
+
+def _single_device(raw: dict[str, Any], index: int, position: int, uid: int) -> dict[str, Any]:
+    """Widgets for one device; returns the edited raw device mapping."""
+    suffix = f"Gerät {position} Haushalt {index + 1}"
+    col_id, col_kind, col_power, col_amount = st.columns(4)
+    device_id = col_id.text_input(
+        f"ID {suffix}", value=str(raw.get("id", "")), key=_key(f"dev_id_{uid}")
+    )
+    kind = col_kind.selectbox(
+        f"Art {suffix}",
+        DEVICE_KINDS,
+        index=DEVICE_KINDS.index(raw["kind"]) if raw.get("kind") in DEVICE_KINDS else 0,
+        format_func=DEVICE_KIND_LABELS.__getitem__,
+        key=_key(f"dev_kind_{uid}"),
+    )
+    power = float(raw.get("power_kw", 1.0))
+    edited: dict[str, Any] = {
+        "id": device_id,
+        "kind": kind,
+        "power_kw": col_power.number_input(
+            f"Leistung {suffix} (kW)", value=power, step=0.5, key=_key(f"dev_power_{uid}")
+        ),
+    }
+    if kind == "modulating":
+        default_energy = raw.get("energy_kwh_per_day")
+        if default_energy is None:  # switched from program: same energy as one run
+            default_energy = kw_to_kwh(KW(power), timedelta(minutes=raw.get("duration_min", 60)))
+        edited["energy_kwh_per_day"] = col_amount.number_input(
+            f"Energie pro Tag {suffix} (kWh)",
+            value=float(default_energy),
+            step=0.5,
+            key=_key(f"dev_energy_{uid}"),
+        )
+        for optional in ("min_run_min", "min_power_kw"):  # no widgets yet, keep values
+            if raw.get(optional) is not None:
+                edited[optional] = raw[optional]
+    else:
+        edited["duration_min"] = col_amount.number_input(
+            f"Dauer {suffix} (Minuten)",
+            value=int(raw.get("duration_min", 60)),
+            min_value=15,
+            step=15,
+            key=_key(f"dev_duration_{uid}"),
+        )
+    window = raw.get("window", {})
+    col_start, col_end, col_base, col_remove = st.columns(4)
+    edited["window"] = {
+        "start": _time_select(
+            col_start,
+            f"Fenster Beginn {suffix}",
+            window.get("start", "08:00"),
+            _key(f"dev_ws_{uid}"),
+        ),
+        "end": _time_select(
+            col_end, f"Fenster Ende {suffix}", window.get("end", "20:00"), _key(f"dev_we_{uid}")
+        ),
+    }
+    edited["baseline_start"] = _time_select(
+        col_base,
+        f"Baseline-Start {suffix}",
+        raw.get("baseline_start", "08:00"),
+        _key(f"dev_bs_{uid}"),
+    )
+    col_remove.button(
+        f"Gerät {position} entfernen (Haushalt {index + 1})",
+        key=_key(f"dev_remove_{uid}"),
+        on_click=_remove_device,
+        args=(index, uid),
+    )
+    return edited
+
+
+def _device_inputs(raw_devices: list[dict[str, Any]], index: int) -> list[dict[str, Any]]:
+    """Expander with the devices of household ``index``; returns the edited device list."""
+    number = index + 1
+    draft = _draft(raw_devices, index)
+    edited: list[dict[str, Any]] = []
+    with st.expander(f"Geräte Haushalt {number}"):
+        st.caption(
+            "Verschiebbare Geräte: Leistung, Tagesenergie (Programm: Dauer), erlaubtes "
+            "Zeitfenster und Start im Ist-Betrieb (Baseline). Uhrzeiten im 15-min-Raster."
+        )
+        if not draft:
+            st.caption("Keine Geräte.")
+        for position, entry in enumerate(draft, start=1):
+            edited.append(_single_device(entry["raw"], index, position, entry["uid"]))
+            st.divider()
+        col_preset, col_add = st.columns(2)
+        col_preset.selectbox(
+            f"Neues Gerät Haushalt {number}",
+            tuple(DEVICE_PRESETS),
+            format_func=lambda key: DEVICE_PRESETS[key].label,
+            key=_key(f"dev_preset_{index}"),
+        )
+        col_add.button(
+            f"Gerät hinzufügen (Haushalt {number})",
+            key=_key(f"dev_add_{index}"),
+            on_click=_add_device,
+            args=(index,),
+        )
     return edited
 
 
@@ -173,6 +331,9 @@ def _collect_edits(config: CommunityConfig) -> dict[str, Any]:
         key=_key("hh_count"),
     )
     households = resize_households(raw["households"], int(count))
+    # drafts of removed households must not reappear when the count grows again
+    for index in range(int(count), MAX_HOUSEHOLDS):
+        st.session_state.pop(_key(f"hh_devices_{index}"), None)
     edits["households"] = [_household_inputs(hh, i) for i, hh in enumerate(households)]
     return edits
 

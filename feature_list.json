@@ -382,7 +382,7 @@
       "E2E: Waschmaschine zu Haushalt 1 hinzufügen, speichern, neu laden -> Gerät vorhanden",
       "E2E: unerfüllbare Energie im Fenster -> deutsche Fehlermeldung, keine Exception"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5-01",

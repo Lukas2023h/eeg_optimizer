@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-19 – F3-05 – CO2-Bilanz
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `economics.emissions(balance, allocation, co2) -> EmissionResult`. Emissionen = grid_import_kwh × co2_g_per_kwh / 1000 kg, PV mit 0 g/kWh. Ausgewiesen werden die Gemeinschaft pro Intervall und Summe sowie jeder Haushalt über seinen grid_import aus der Allocation. Die Eingänge werden geprüft (Spalte, Index, negative Intensität → `EmissionInputError`, NaN → `FrameValidationError`, Allocation passt nicht). Die Eingangsprüfung ist von `costs` übernommen und erhält jetzt die Fehlerklasse als Parameter. Neu ist `units.g_to_kg_co2`. Die Spaltenkonstante kommt aus `community.CO2_COLUMN`, es gibt kein Duplikat. Tests: `tests/unit/test_emissions.py` (handgerechnetes Mini-Beispiel gesamt und je Haushalt, nur PV, ganzes Jahr, Fehlerfälle) und `tests/property/test_emissions.py` (Formel, Haushalte = Gemeinschaft, mehr PV → nie mehr CO₂). architecture.md §4 ist ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (nit): Statt des `error`-Parameters in `_check_balance`/`_household_frames` wäre eine gemeinsame Basisklasse `EconomicsInputError` sauberer. Die Signatur weicht von der Skizze `emissions(balance, co2)` ab, weil die Haushaltssicht die Allocation braucht; architecture.md ist angepasst.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F3-06).
+
 ## 2026-11-18 – F3-04 – Kostenmodell (€)
 - Ergebnis: PASS (Evaluator PASS ×2, Reviewer-Major behoben)
 - Gemacht: `src/eeg_optimizer/economics.py` mit `value_shared_ct_per_kwh`, `reduced_grid_fee_ct_per_kwh` und `costs(balance, allocation, tariffs, prices=None) -> CostResult` (Gemeinschaftssicht pro Intervall in `_eur`, Haushaltssicht als Tabelle, Spot-Variante spot + markup). Neu ist `units.ct_to_eur` (skalar/Array). Die Eingänge werden geprüft (Balance-Spalten, Preis-Spalte/Index, Allocation-Ebenen/Spalten, `validate_frame` je Haushalt, Summe = Balance mit 1e-6 kWh). Tests: `tests/unit/test_economics.py` (9.42/7.68, handgerechnetes Mini-Beispiel fix und Spot mit negativem Preis, Verschiebe-Test 1 kWh = value_shared, ganzes Jahr, Fehlerfälle inkl. NaN) und `tests/property/test_economics.py` (Kosten = ohne Teilen − shared·value_shared, Spot-Formel mit Preisen −50..50, Spot = fix bei spot = energy_price − markup). architecture.md §4 ist ergänzt.

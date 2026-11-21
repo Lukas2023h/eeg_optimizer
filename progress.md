@@ -20,10 +20,10 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 
 **Für F2 (Konfiguration):**
 - F3-06/F5-10 (Ergebnisseiten): Die aktive Konfiguration liegt in `st.session_state[config_store.SESSION_CONFIG_KEY]`. Fehlt sie, `config_store.DEFAULT_CONFIG_PATH` laden (architecture.md §6). Standardszenario ist `config/example_community.yaml` (HTW, braucht Netzwerk), offline `config/example_community_offline.yaml`. Die E2E-Tests der Ergebnisseiten wählen die Offline-Datei über die Auswahl „Konfigurationsdatei“. Zeitreihen über `community.build_inputs(cfg)`. (F2-02, F2-03, F2-04)
-- F4-04/F8-02: Die Haushaltszeilen der Konfigurationsseite baut `_household_inputs` in `app/pages/configuration.py`. Geräte (`devices`) bleiben beim Bearbeiten erhalten, haben aber noch keine Widgets. Die Widget-Keys tragen das Suffix `_v<n>` und werden beim Laden einer Datei neu erzeugt. (F2-04)
+- F8-02/F7-03: Die Haushaltszeilen der Konfigurationsseite baut `_household_inputs` in `app/pages/configuration.py`, Geräte `_device_inputs` (Aufklapper „Geräte Haushalt N“, Entwurf in session_state mit `uid`). Die Widget-Keys tragen das Suffix `_v<n>` und werden beim Laden einer Datei neu erzeugt. E2E: Nach Hinzufügen/Entfernen zeigt Streamlit kurz alte und neue Elemente zugleich; erst per `to_have_count` auf das Rerun-Ende warten, dann Werte prüfen (Strict-Mode bricht sonst sofort ab). (F2-04, F4-04)
 - F8-01: `smartmeter` ist in der Config erlaubt, hat aber noch keinen Loader. `build_inputs` meldet dann `CommunitySourceError`. F8-01 trägt einen Adapter `(LoadConfig, year, cache) -> load_kwh` in `community.LOAD_SOURCES` ein. (F2-03)
 - Das Standardszenario (pvgis/htw/awattar/energy_charts) läuft durch `build_inputs` bisher nur mit gemockten Quellen. Ein echter Lauf gehört in einen Network-Test bzw. in F3/F2-04. (F2-03)
-- F4-02/F4-03/F4-04/F5: `devices.devices_for(cfg)` liefert typisierte Geräte je Haushalt (`ModulatingDevice`/`ProgramDevice`, `TimeWindow` mit `contains`/`remaining_after`). `load_config` validiert die Geräte **nicht**; `devices_for` muss beim Aufbau der Eingänge (F4-02) bzw. beim Speichern in der UI (F4-04) aufgerufen werden, damit fehlerhafte Geräte früh auffallen. Uhrzeiten müssen in YAML in Anführungszeichen stehen ("18:00"), Zeiten und Dauern auf dem 15-min-Raster. Zusätzlich zur Spec wird verlangt, dass die Energie ab `baseline_start` bis Fensterende mit `power_kw` erreichbar ist (Baseline-Fahrplan darf das Fenster nicht verlassen). (F4-01)
+- F5: `devices.devices_for(cfg)` liefert typisierte Geräte je Haushalt (`ModulatingDevice`/`ProgramDevice`, `TimeWindow` mit `contains`/`remaining_after`). `load_config` validiert die Geräte **nicht**; die UI prüft sie über `config_store.apply_edits` → `validate_devices` (inkl. Baseline übers Jahr). Eine von Hand geschriebene Datei kann aber ungeprüfte Geräte enthalten, der Optimierer muss `devices_for` selbst aufrufen. Uhrzeiten müssen in YAML in Anführungszeichen stehen ("18:00"), Zeiten und Dauern auf dem 15-min-Raster. Zusätzlich zur Spec wird verlangt, dass die Energie ab `baseline_start` bis Fensterende mit `power_kw` erreichbar ist (Baseline-Fahrplan darf das Fenster nicht verlassen). (F4-01)
 - F4-04/F5/F5-09: Beide Beispielkonfigurationen haben jetzt identische Geräte (IDs `ev`, `boiler`, `heat_pump`, `washing_machine`, `dishwasher`; hh05 hat alle fünf, insgesamt 12 Geräte, davon 6 `program` → Binärvariablen). Ein Test (`test_online_and_offline_examples_have_the_same_devices`) verhindert Abweichungen. Tests, die eigene Geräte prüfen, müssen die Beispielgeräte vorher entfernen (siehe `test_devices_flow_into_baseline_balance`). Die Kommentarprüfung der YAMLs akzeptiert `kW` und `Minuten` als Einheit. (F4-03)
 - `pv.kwp` muss > 0 sein, eine Gemeinschaft ohne PV ist nicht konfigurierbar. Bei Bedarf auf ≥ 0 lockern. (F2-01)
 
@@ -62,10 +62,17 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - INV-4: Aggregierte Kennzahl-Tabellen tragen dimensionslose Anteile mit dem Suffix `_ratio` (architecture.md §3.1). In spec §5 und CLAUDE.md „Einheiten“ ist das noch nicht nachgezogen, `units.ALLOWED_SUFFIXES` kennt `_ratio` nicht (Zeitreihen brauchen es nicht). (F3-02)
 
 - F4-03/F5/F5-07: `devices.tasks(device, index)` liefert die Tagesaufgaben (`Task` mit tz-aware `window_start`/`window_end`/`baseline_start`, `day` = Tag des Fensterbeginns). Nur Aufgaben mit ganzem Fenster im Index zählen (2023: E-Auto 18–07 → 364 Aufgaben); der Optimierer muss dieselbe Menge verwenden, sonst ist der Vergleich unfair. `devices.baseline_schedule` → `device_kwh`, `devices.baseline_loads(loads, devices_for(cfg))` = Baseline-Last; `analysis.analyze` nutzt sie schon. Die Optimierung braucht die **unflexiblen** `CommunityInputs.loads` plus Geräte separat. (F4-02)
-- F4-04: Geräte, deren Fenster 02:00–03:00 überdeckt, brauchen ≥ 1 h Reserve ab `baseline_start`, sonst wirft `baseline_schedule` am 26.3. `BaselineScheduleError` (Fenster real 1 h kürzer) und die Ist-Analyse bricht ab. Die UI sollte beim Speichern darauf hinweisen. (F4-02)
 - F5-07 (Rückfall auf Baseline): Der Baseline-Lauf hält `min_power_kw` im letzten Teilintervall und `min_run_min` nicht unbedingt ein. Fällt ein Block auf die Baseline zurück, ist INV-2 dafür nicht garantiert; Runner/Greedy entsprechend prüfen. (F4-02)
 
 ---
+
+## 2026-11-21 – F4-04 – UI: Geräte je Haushalt bearbeiten
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Konfigurationsseite: je Haushalt Aufklapper „Geräte Haushalt N“ mit ID, Art, Leistung, Energie/Tag bzw. Dauer, Fenster Beginn/Ende, Baseline-Start (Uhrzeit-Auswahl im 15-min-Raster), „Gerät N entfernen“ und „Gerät hinzufügen“ aus Vorlagen. `config_store`: `DEVICE_PRESETS`, `new_device` (freie ID `<vorlage>_2`), `validate_devices` (devices_for + Baseline übers Jahr, DST-Fehler als ConfigError mit Pfad), von `apply_edits` aufgerufen. Tests: `tests/unit/test_config_store_devices.py`, AppTests in `test_configuration_page.py` (hinzufügen, entfernen, bearbeiten, Art wechseln, Fehler, versteckte Optionen bleiben, Verkleinern), `tests/e2e/test_device_editing.py` (Waschmaschine speichern + neu laden, 500 kWh → deutsche Meldung, entfernen). architecture.md §6 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (nit): `_single_device` ist lang (~75 Zeilen). `min_run_min`/`min_power_kw` haben keine Widgets (bleiben erhalten). Speichern dauert durch die Baseline-Prüfung ca. 0,3 s.
+- Fehlertypen: e2e-flaky-rerun
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-01).
 
 ## 2026-11-19 – F4-03 – Geräte in der Beispielgemeinschaft
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -98,11 +105,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Offene Probleme (minor/nit): `daily_profile`/`surplus_by_day_hour` prüfen den Eingang über einen `balance.kpis`-Aufruf (eine eigene Validierungsfunktion wäre sauberer). `use_container_width` ist in neueren Streamlit-Versionen veraltet. Das 10-s-Budget im Unit-Test ist eine Wanduhr-Messung. Die E2E-Tests prüfen den Diagramminhalt nicht.
 - Fehlertypen: –
 - Nächster Schritt: `scripts/next_feature.sh`.
-
-## 2026-11-19 – F3-05 – CO2-Bilanz
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: `economics.emissions(balance, allocation, co2) -> EmissionResult`. Emissionen = grid_import_kwh × co2_g_per_kwh / 1000 kg, PV mit 0 g/kWh. Ausgewiesen werden die Gemeinschaft pro Intervall und Summe sowie jeder Haushalt über seinen grid_import aus der Allocation. Die Eingänge werden geprüft (Spalte, Index, negative Intensität → `EmissionInputError`, NaN → `FrameValidationError`, Allocation passt nicht). Die Eingangsprüfung ist von `costs` übernommen und erhält jetzt die Fehlerklasse als Parameter. Neu ist `units.g_to_kg_co2`. Die Spaltenkonstante kommt aus `community.CO2_COLUMN`, es gibt kein Duplikat. Tests: `tests/unit/test_emissions.py` (handgerechnetes Mini-Beispiel gesamt und je Haushalt, nur PV, ganzes Jahr, Fehlerfälle) und `tests/property/test_emissions.py` (Formel, Haushalte = Gemeinschaft, mehr PV → nie mehr CO₂). architecture.md §4 ist ergänzt.
-- Neue Abhängigkeiten: –
-- Offene Probleme (nit): Statt des `error`-Parameters in `_check_balance`/`_household_frames` wäre eine gemeinsame Basisklasse `EconomicsInputError` sauberer. Die Signatur weicht von der Skizze `emissions(balance, co2)` ab, weil die Haushaltssicht die Allocation braucht; architecture.md ist angepasst.
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F3-06).

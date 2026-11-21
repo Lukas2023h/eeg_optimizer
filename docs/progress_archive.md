@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-11-21 – F5-02 – MILP für einen Block: modulierende Lasten (LP)
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Neues Modul `src/eeg_optimizer/optimize/milp.py`: `build_block_model` (PuLP-LP: Gerätevariablen nur in Aufgabenfenstern aus `devices.tasks`, Energie je Aufgabe, Leistungsgrenze, `shared ≤ pv`, `shared ≤ Last + Geräte`, max Σ shared), `solve_block` (CBC, Status-/sol_status-Prüfung, Energie-Reparatur der CBC-Rundung), `BlockModel`/`DeviceVars`/`TaskSpan`, `UnsupportedModelError`, `BlockSolveError`. Tests: `tests/unit/test_milp.py` (Handbeispiel 12–13 Uhr, Leistungsgrenze, kein Binär, Variablen nur im Fenster, Reparatur, Ablehnungen) und `tests/property/test_milp.py` (INV-2, INV-3 inkl. DST-Tage, 1–2 Tage, mehrere Haushalte). architecture.md §4 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Leerer Block-Index → IndexError statt eigener Meldung. `DeviceVars.row` als `list[Any]` typisiert (PuLP ohne Stubs). Kein Test mit echtem Zeitlimit-Abbruch.
+- Fehlertypen: solver-precision
+- Anmerkung: Eigener Bug, vom Property-Test gefunden. Die CBC-Rundung verfehlte die Tagesenergie um 1e-6 kWh.
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-03).
+
 ## 2026-11-21 – F5-01 – Zielfunktionen und Bewertung
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: Neues Paket `src/eeg_optimizer/optimize/` mit `objectives.py`: `Objective`/`OBJECTIVES`, `DeviceSchedule`, `OptimizationInputs` (+ `from_community`), `schedule_loads`, `score_balance`, `evaluate` (höher = besser), `baseline_device_schedule`, `ObjectiveInputError`. `economics.py`: Gemeinschaftssicht als `community_costs` und `community_emissions` herausgelöst (von `costs`/`emissions` genutzt). Tests: `tests/unit/test_objectives.py` (Mini-Beispiel 3 Fahrpläne × 3 Ziele handberechnet, Rangfolge je Ziel, Spot statt Fixpreis, Baseline-Wert = berichtete Kennzahlen des Offline-Beispiels, Fehlerfälle). architecture.md §4 ergänzt.

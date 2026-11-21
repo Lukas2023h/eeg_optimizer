@@ -45,7 +45,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from eeg_optimizer.balance import PV_COLUMN
-from eeg_optimizer.devices import DEVICE_COLUMN, Device, ProgramDevice, tasks
+from eeg_optimizer.devices import DEVICE_COLUMN, Device, ProgramDevice
 from eeg_optimizer.optimize.milp import (
     ObjectiveWeights,
     UnsupportedModelError,
@@ -90,7 +90,7 @@ def _jobs(inputs: OptimizationInputs, index: pd.DatetimeIndex) -> list[_Job]:
     for h_pos, (household_id, devices) in enumerate(inputs.devices.items()):
         for d_pos, device in enumerate(devices):
             cap = float(kw_to_kwh(KW(device.power_kw)))
-            for task in tasks(device, index):
+            for task in inputs.tasks(device):
                 start = int(index.searchsorted(task.window_start))
                 stop = int(index.searchsorted(task.window_end))
                 energy = float(task.energy_kwh)

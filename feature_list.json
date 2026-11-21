@@ -496,7 +496,7 @@
       "Gerät mit Fenster 18:00–07:00 wird korrekt über die Blockgrenze geplant (Test)",
       "solver: greedy in der Konfiguration nutzt nur die Heuristik"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5-08",

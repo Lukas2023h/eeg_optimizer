@@ -203,25 +203,31 @@ def _checked_index(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
     return index
 
 
-def tasks(device: Device, index: pd.DatetimeIndex) -> list[Task]:
+def tasks(device: Device, index: pd.DatetimeIndex, *, day: date | None = None) -> list[Task]:
     """All daily tasks of ``device`` whose whole window lies inside ``index``.
 
     ``index`` must be in the internal format (gapless 15-min grid, Europe/Vienna); its
     end is the start of the last interval plus 15 min. Tasks are ordered by day.
+    ``day`` (runner F5-07): only the task whose window starts on that day, so a block of
+    up to 48 h does not also pick up a short window of the next day.
 
     Raises:
         units.FrameValidationError: if ``index`` is not in the internal format.
     """
     index = _checked_index(index)
     first, end = index[0], index[-1] + INTERVAL
-    day = (first - timedelta(days=1)).date()  # a window from the day before may fit
+    current = (first - timedelta(days=1)).date()  # a window from the day before may fit
     last_day = index[-1].date()
     result: list[Task] = []
-    while day <= last_day:
-        task = _task_for_day(device, day)
-        if task.window_start >= first and task.window_end <= end:
+    while current <= last_day:
+        task = _task_for_day(device, current)
+        if (
+            (day is None or current == day)
+            and task.window_start >= first
+            and task.window_end <= end
+        ):
             result.append(task)
-        day += timedelta(days=1)
+        current += timedelta(days=1)
     return result
 
 
@@ -248,11 +254,14 @@ def _run_energies(device: Device) -> np.ndarray:
     return np.asarray(run, dtype=float)
 
 
-def baseline_schedule(device: Device, index: pd.DatetimeIndex) -> pd.Series:
+def baseline_schedule(
+    device: Device, index: pd.DatetimeIndex, *, day: date | None = None
+) -> pd.Series:
     """Baseline energy of ``device`` per interval of ``index`` (Series ``device_kwh``).
 
-    Every task of :func:`tasks` runs from its ``baseline_start`` at ``power_kw`` until the
-    daily energy is met (program: for ``duration_min``); all other intervals are 0.
+    Every task of :func:`tasks` (only that of ``day`` if given) runs from its
+    ``baseline_start`` at ``power_kw`` until the daily energy is met (program: for
+    ``duration_min``); all other intervals are 0.
 
     Raises:
         units.FrameValidationError: if ``index`` is not in the internal format.
@@ -262,7 +271,7 @@ def baseline_schedule(device: Device, index: pd.DatetimeIndex) -> pd.Series:
     index = _checked_index(index)
     values = np.zeros(len(index), dtype=float)
     run = _run_energies(device)
-    for task in tasks(device, index):
+    for task in tasks(device, index, day=day):
         start = _position(index, task.baseline_start)
         stop = start + len(run)
         if stop > _position(index, task.window_end):

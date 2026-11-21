@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 from typing import Final, get_args
 
 import numpy as np
@@ -31,7 +32,14 @@ import pandas as pd
 from eeg_optimizer.balance import LOAD_COLUMN, SHARED_COLUMN, community_balance
 from eeg_optimizer.community import CommunityInputs
 from eeg_optimizer.config import CommunityConfig, ObjectiveName, TariffConfig
-from eeg_optimizer.devices import DEVICE_COLUMN, Device, baseline_schedule, devices_for
+from eeg_optimizer.devices import (
+    DEVICE_COLUMN,
+    Device,
+    Task,
+    baseline_schedule,
+    devices_for,
+    tasks,
+)
 from eeg_optimizer.economics import (
     COMMUNITY_COST_COLUMN,
     EMISSIONS_COLUMN,
@@ -68,10 +76,17 @@ class OptimizationInputs:
     tariffs: TariffConfig
     devices: Mapping[str, tuple[Device, ...]]
     """Household id -> flexible devices (households without devices may be missing)."""
+    task_day: date | None = None
+    """Only plan the tasks whose window starts on this day (one block of the runner F5-07);
+    ``None`` = every task whose window lies in the index. Used by baseline, MILP and greedy."""
 
     @property
     def index(self) -> pd.DatetimeIndex:
         return pd.DatetimeIndex(self.pv.index)
+
+    def tasks(self, device: Device) -> list[Task]:
+        """Tasks of ``device`` that this input plans (:func:`devices.tasks` with ``task_day``)."""
+        return tasks(device, self.index, day=self.task_day)
 
     @classmethod
     def from_community(cls, inputs: CommunityInputs, config: CommunityConfig) -> OptimizationInputs:
@@ -89,7 +104,10 @@ class OptimizationInputs:
 def baseline_device_schedule(inputs: OptimizationInputs) -> dict[str, dict[str, pd.Series]]:
     """Baseline schedule of every device (:func:`devices.baseline_schedule`) as DeviceSchedule."""
     return {
-        household_id: {device.id: baseline_schedule(device, inputs.index) for device in devices}
+        household_id: {
+            device.id: baseline_schedule(device, inputs.index, day=inputs.task_day)
+            for device in devices
+        }
         for household_id, devices in inputs.devices.items()
     }
 

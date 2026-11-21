@@ -82,7 +82,7 @@ import pandas as pd
 import pulp
 
 from eeg_optimizer.balance import LOAD_COLUMN, PV_COLUMN
-from eeg_optimizer.devices import DEVICE_COLUMN, ModulatingDevice, ProgramDevice, tasks
+from eeg_optimizer.devices import DEVICE_COLUMN, ModulatingDevice, ProgramDevice
 from eeg_optimizer.economics import (
     co2_intensity_g_per_kwh,
     community_shared_price_ct_per_kwh,
@@ -382,7 +382,7 @@ def build_block_model(inputs: OptimizationInputs, objective: Objective) -> Block
             cap = float(kw_to_kwh(KW(device.power_kw)))
             row: list[Any] = [0.0] * n
             spans: list[TaskSpan] = []
-            for k, task in enumerate(tasks(device, index)):
+            for k, task in enumerate(inputs.tasks(device)):
                 span = TaskSpan(
                     int(index.searchsorted(task.window_start)),
                     int(index.searchsorted(task.window_end)),

@@ -158,12 +158,12 @@ def devices_for(config: CommunityConfig) -> dict[str, tuple[Device, ...]]   # je
 # Geprüft: Energie mit power_kw im Fenster und ab baseline_start bis Fensterende erreichbar
 # (Programm: Dauer passt ab baseline_start), baseline_start im Fenster, min_power_kw ≤ power_kw,
 # min_run_min ≤ Fensterlänge, Geräte-IDs je Haushalt eindeutig.
-def tasks(device: Device, index: pd.DatetimeIndex) -> list[Task]   # F4-02
+def tasks(device: Device, index: pd.DatetimeIndex, *, day: date | None = None) -> list[Task]   # F4-02, day: F5-07
 # Task (frozen): device_id, day (Tag des Fensterbeginns), window_start, window_end, baseline_start
 # (tz-aware Zeitpunkte Europe/Vienna), energy_kwh. Nur Aufgaben, deren ganzes Fenster im Index liegt
 # (z. B. 2023: E-Auto 18–07 Uhr -> 364 Aufgaben). Uhrzeiten je Tag: nicht existent (Frühjahr) -> 03:00,
 # doppelt (Herbst) -> erstes Auftreten. Laufzeit zählt echte Intervalle (Fenster am 26.3. ggf. 1 h kürzer).
-def baseline_schedule(device: Device, index: pd.DatetimeIndex) -> pd.Series   # device_kwh (F4-02)
+def baseline_schedule(device: Device, index: pd.DatetimeIndex, *, day: date | None = None) -> pd.Series   # device_kwh (F4-02)
 # Ab baseline_start volle Leistung in aufeinanderfolgenden Intervallen bis Tagesenergie erreicht
 # (modulating: Rest im letzten Intervall; program: duration_min). Endet der Lauf nach dem Fensterende
 # (nur Frühjahrs-Zeitumstellung möglich) -> BaselineScheduleError, nie still abgeschnitten.
@@ -226,8 +226,19 @@ def solve_greedy(inputs: OptimizationInputs, objective: Objective) -> dict[str, 
 # UnsupportedModelError (unbekanntes Ziel). Toleranzen: ENERGY_NOISE_KWH (1e-9, Rest bei vollem Fenster),
 # BOUND_NOISE_KWH (1e-12, E/k durch Division knapp unter floor bzw. über cap → auf die Schranke gesetzt).
 
-# optimize/runner.py
-def optimize(inputs: OptimizationInputs, objective: Objective, solver: Literal["milp","greedy"]) -> Schedule
+# optimize/runner.py (F5-07, Details §5 „Zerlegung“/„Garantie INV-3“)
+def optimize(inputs: OptimizationInputs, objective: Objective, solver: Literal["milp","greedy"], *,
+             time_limit_s: float | None = DEFAULT_TIME_LIMIT_S (20 s), mip_gap: float | None = None,
+             progress: Callable[[int, int], None] | None = None) -> Schedule
+# Schedule (frozen): devices (hh -> Gerät -> Series device_kwh, ganzer Index, DeviceSchedule), objective,
+# solver, block_days (Tage mit Block), fallback_blocks: tuple[FallbackBlock(day, reason (deutsch, alle
+# Schritte), used: "greedy" | "baseline")], fallback_ratio (Property, 0 ohne Blöcke), score,
+# baseline_score (evaluate auf den ganzen Inputs), runtime_s. Rückfall = BlockSolveError/GreedyScheduleError
+# oder Zielwert > SCORE_TOLERANCE (1e-6) unter der Baseline des Blocks. Konfigurationsfehler
+# (ObjectiveInputError, UnsupportedModelError, BaselineScheduleError, …) sind kein Rückfall und werden
+# geworfen; inputs mit task_day → RunnerInputError.
+# OptimizationInputs.task_day: date | None (F5-07): nur Aufgaben, deren Fenster an diesem Tag beginnt;
+# inputs.tasks(device) = devices.tasks(device, index, day=task_day). Baseline, MILP und Greedy nutzen das.
 
 # economics.py / compare.py
 def value_shared_ct_per_kwh(tariffs: TariffConfig) -> float   # spec §7.1, Default local 9.42, regional 7.68
@@ -270,7 +281,9 @@ Die Quellen holen über HTTP nur, wenn der Cache fehlt (`data/cache/<source>/<ke
   - Umsetzung (F5-05): Import und Export werden über `import = load − shared`, `export = pv − shared` eliminiert, das Ziel hängt dann nur von `shared` und `load` ab. Bei negativem Wert eines geteilten kWh (sehr negativer Spotpreis) wird `shared = min(pv, load)` erzwungen, damit Modell und Bilanz übereinstimmen (Details §4 `optimize/milp.py`).
 - **Variablen:** `modulating` → kontinuierlich pro Intervall (plus Binärvariablen nur bei `min_run_min`/`min_power_kw`). `program` → eine Binärvariable pro möglichem Start.
 - **Zerlegung (INV-5):** Es wird tageweise gelöst. Ein Block umfasst alle Aufgaben, deren Fenster an Tag d beginnt, mit Horizont bis zum spätesten Fensterende (≤ 48 h). Bereits eingeplante Lasten früherer Blöcke gehen als feste Last ein. Die Blöcke sind unabhängig genug für die Parallelisierung per `concurrent.futures` (optional). Erwartet werden ca. 365 kleine MILPs.
+  - Umsetzung (F5-07, `optimize/runner.py`): Aufgaben = `devices.tasks` auf dem ganzen Index (gleiche Menge wie die Baseline). Block d läuft vom frühesten Fensterbeginn bis zum spätesten Fensterende der Aufgaben von Tag d; Tage ohne Aufgabe haben keinen Block. Die Block-Inputs tragen `task_day = d`, damit ein kurzes Fenster von Tag d+1, das zufällig im Block liegt, nicht doppelt geplant wird. **Verfeinerung:** Feste Last eines Blocks ist der *aktuelle* Fahrplan aller anderen Tage im Block, also frühere Tage optimiert **und spätere Tage noch mit ihrer Baseline**. Dann ist die Zielwert-Differenz eines Blocks genau die Differenz des Jahreszielwerts (Ziel = Summe über Intervalle), und „jeder Block nicht schlechter als seine Baseline“ ergibt INV-3 fürs ganze Jahr (bis auf Blöcke × `SCORE_TOLERANCE`). Nur frühere Blöcke als feste Last kann das Jahr verschlechtern; Beleg: `tests/unit/test_runner.py::test_baseline_of_later_blocks_is_fixed_load_so_the_year_is_not_worse` (Variante ohne spätere Baseline: −1,2 kg statt −0,2 kg). Parallelisierung ist damit nicht mehr möglich (Blöcke sequenziell).
 - **Garantie INV-3:** Der Runner bewertet Baseline und Ergebnis mit derselben Zielfunktion pro Block. Ist das Ergebnis schlechter oder scheitert der Solver (Timeout, infeasible), greift die Greedy-Heuristik und notfalls der Baseline-Fahrplan des Blocks. `Schedule.fallback_blocks` (Liste mit Datum und Grund) und `Schedule.fallback_ratio` werden im Ergebnis und in der UI ausgewiesen, also nie stillschweigend. Ein Test verlangt `fallback_ratio == 0` für das Standardszenario, und der Evaluator wertet einen Rückfall dort als FAIL.
+  - Umsetzung (F5-07): Kette `milp` → Greedy → Baseline, `greedy` → Baseline. Jeder Schritt wird mit `evaluate` auf den Block-Inputs gegen die Baseline des Blocks verglichen; ein Ergebnis bis `SCORE_TOLERANCE` (1e-6 kWh/€/kg je Block, CBC-Rundung) darunter gilt als nicht schlechter. Ein Rückfallblock nennt Datum, alle Gründe der Kette und den verwendeten Fahrplan. `solver: greedy` ruft das MILP nie auf. Mit `min_power_kw`/`min_run_min` kann die Baseline diese Optionen verletzen; ein Baseline-Rückfall übernimmt das (INV-2 dann für diesen Block nicht garantiert, aber als Rückfall ausgewiesen).
 - **Greedy:** Aufgaben nach Flexibilität sortieren (kleines Fenster zuerst). Energie in die Intervalle mit dem besten Zielwert legen (größter verbleibender Überschuss, niedrigster Preis bzw. niedrigstes CO₂), unter Beachtung von Leistung und Fenster.
   - Umsetzung (F5-06, `optimize/greedy.py`): Flexibilität = Schlupf = Fensterintervalle − bei voller Leistung benötigte Intervalle (statt reiner Fensterlänge: ein langes Programm in einem kaum längeren Fenster ist unflexibler als eine kurze Aufgabe im gleichen Fenster), danach früheres Fenster, dann Reihenfolge der Eingaben. Belegt durch `tests/unit/test_greedy.py::test_least_flexible_task_is_placed_first` und `test_result_has_every_device_of_every_household`. Der Zielwert je kWh kommt aus `milp.objective_weights` (`shared_weight · min(a, Überschuss) − load_weight · a`), also exakt dieselbe Bewertung wie `evaluate`. Modulierend ohne min-Optionen: Wasserfüllung (bestes Intervall je kWh zuerst, Gleichstand → frühestes). Programm: bester Start eines Laufs. Modulierend mit `min_power_kw`/`min_run_min`: ein zusammenhängender Lauf von k Intervallen mit E/k je Intervall, bestes (k, Start) über alle zulässigen k (vollständig: jede zulässige Aufteilung in mehrere Läufe hat einen gleich langen Einzellauf). Das Ergebnis ist ein zulässiger Punkt des Block-MILP, also nie besser als dessen Optimum; INV-3 garantiert Greedy **nicht** (Runner vergleicht). Nicht platzierbare Aufgabe (Frühjahrs-DST, nicht aufteilbare Energie) → `GreedyScheduleError`.
 

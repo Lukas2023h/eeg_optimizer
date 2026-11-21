@@ -64,10 +64,21 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - F4-03/F5/F5-07: `devices.tasks(device, index)` liefert die Tagesaufgaben (`Task` mit tz-aware `window_start`/`window_end`/`baseline_start`, `day` = Tag des Fensterbeginns). Nur Aufgaben mit ganzem Fenster im Index zählen (2023: E-Auto 18–07 → 364 Aufgaben); der Optimierer muss dieselbe Menge verwenden, sonst ist der Vergleich unfair. `devices.baseline_schedule` → `device_kwh`, `devices.baseline_loads(loads, devices_for(cfg))` = Baseline-Last; `analysis.analyze` nutzt sie schon. Die Optimierung braucht die **unflexiblen** `CommunityInputs.loads` plus Geräte separat. (F4-02)
 - F5-02..F5-07: `optimize.objectives.evaluate(schedule, inputs, objective)` bewertet einen `DeviceSchedule` (hh → Geräte-ID → Series `device_kwh`), höher = besser (+kWh shared, −€ Gemeinschaftskosten mit Spot-Tarif, −kg CO₂). `OptimizationInputs.from_community(inputs, cfg)` bündelt Zeitreihen, Tarife und `devices_for`. Der Fahrplan muss **genau** die Geräte aus `inputs.devices` enthalten. Für Blöcke die Frames vorher auf den Block-Index schneiden (eine `restrict`-Hilfe gibt es noch nicht). Das MILP muss dieselben Koeffizienten wie `economics.community_costs`/`community_emissions` verwenden. `baseline_device_schedule(inputs)` liefert die Baseline. (F5-01)
 - F5-03/F5-04/F5-05/F5-07: `optimize.milp.build_block_model`/`solve_block(inputs, objective, time_limit_s)` (Block-LP, `inputs` vorher auf den Block schneiden). Erweiterungen in `build_block_model`: `_check_supported` lehnt min-Optionen und min_cost/min_co2 bisher mit `UnsupportedModelError` ab, dort jeweils freischalten. `DeviceVars.row` hat je Intervall eine Variable (modulating), einen Ausdruck der Startbinärvariablen (program) bzw. `0.0`; `spans` die Aufgaben (bei Programmen mit `start_vars`/`run_intervals`). CBC liefert nur ~8 signifikante Stellen: `_exact_energy` reskaliert modulierende Aufgaben, Programme werden aus dem gewählten Start rekonstruiert. Runner fängt `BlockSolveError` (Status ≠ Optimal, auch Zeitlimit mit nur zulässiger Lösung) — **auch schon beim Aufbau** (`build_block_model`), wenn ein Programm am Frühjahrs-DST-Tag nicht ins Fenster passt; dieser Rückfall muss gezählt und ausgewiesen werden. Leerer Block-Index wird nicht abgefangen (IndexError). (F5-02, F5-03)
-- F5-04: min-Optionen für modulating per Binärvariablen ergänzen; Programme sind bereits ein MILP (`problem.isMIP()`), der Test `test_model_without_min_options_has_no_binary_variables` gilt nur für reine modulating-Blöcke. (F5-03)
 - F5-07 (Rückfall auf Baseline): Der Baseline-Lauf hält `min_power_kw` im letzten Teilintervall und `min_run_min` nicht unbedingt ein. Fällt ein Block auf die Baseline zurück, ist INV-2 dafür nicht garantiert; Runner/Greedy entsprechend prüfen. (F4-02)
+- F5-07: Mit min-Optionen ist INV-3 **nicht** durch das Modell garantiert (Baseline verletzt sie ggf. und kann mehr teilen, Test `test_min_run_can_make_the_optimum_worse_than_a_baseline_that_violates_it`). Der Runner muss je Block gegen die Baseline vergleichen und entscheiden (Rückfall zählen/ausweisen oder Ergebnis behalten und vermerken). Nicht aufteilbare Energie (z. B. 1 kWh bei ≥ 4,1 kW) → `BlockSolveError` „Infeasible“. (F5-04)
+- F5-07/INV-5: Große semikontinuierliche Geräte (min_power_kw) können CBC beim Optimalitätsbeweis lange beschäftigen (3 von 600 zufälligen 2-Tage-Blöcken > 20 s, mit `mip_gap=1e-2` alle ≤ 2 s). `solve_block(..., time_limit_s, mip_gap)` nutzen; Gap und Zeitlimit im Runner festlegen und ausweisen. (F5-04)
 
 ---
+
+## 2026-11-21 – F5-04 – MILP: Mindestlaufzeit und Mindestleistung
+- Ergebnis: PASS (Evaluator PASS, Reviewer: 2 major behoben)
+- Gemacht: `optimize/milp.py`: bei `min_power_kw`/`min_run_min` Binärvariable `on` je Fensterintervall (`floor·on ≤ x ≤ cap·on`, floor = Mindestleistung bzw. bei nur min_run 1 % cap), Kardinalitätsschranken `ceil(E/cap) ≤ Σ on ≤ floor(E/floor)` (machte harte Fälle von > 20 s auf < 1 s), `_add_min_run` (Startindikatoren, keine späten Starts, Frühjahrs-DST → `BlockSolveError`), Reparatur der CBC-Rundung in `[floor, cap]` bzw. exakt 0, neuer Parameter `solve_block(..., mip_gap=None)`. Tests: `tests/unit/test_milp_min_options.py`, Property-Test `test_inv2_min_power_and_min_run_are_kept` (mit `mip_gap=1e-2`, Begründung im Test). `test_min_options_are_rejected_not_ignored` → `..._planned_not_ignored` (Verhalten absichtlich geändert). architecture.md §4 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Optimalität mit min-Optionen nur an Handbeispielen geprüft (kein Brute-Force-Vergleich). Tests nutzen private Helfer (`_exact_energy`, `_running_count_bounds`) und Variablennamen (`on_0_1_`).
+- Fehlertypen: solver-precision, solver-performance
+- Anmerkung: Reviewer-major 1: Reparatur warf bei 1-ulp-Abweichung, wenn alle Werte am Rand lagen (Energie = Vielfaches von floor/cap). Reviewer-major 2: INV-3-Grenze mit min-Optionen nicht durch Test/Offene Punkte abgesichert. Eigener Befund: seed 42 hing > 10 min (schwache Relaxation).
+- Lesson: solver-precision → CLAUDE.md „Gelernte Regeln“ + Regressionstests für Werte genau auf den Schranken.
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-05).
 
 ## 2026-11-21 – F5-03 – MILP: Programm-Geräte (Startzeit-Binärvariablen)
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -101,11 +112,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Offene Probleme (nit): `_single_device` ist lang (~75 Zeilen). `min_run_min`/`min_power_kw` haben keine Widgets (bleiben erhalten). Speichern dauert durch die Baseline-Prüfung ca. 0,3 s.
 - Fehlertypen: e2e-flaky-rerun
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-01).
-
-## 2026-11-19 – F4-03 – Geräte in der Beispielgemeinschaft
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: `config/example_community.yaml` und `_offline.yaml` haben jetzt gleiche, kommentierte Geräte. hh01: E-Auto + Waschmaschine, hh02: Geschirrspüler, hh03: Wärmepumpe + Geschirrspüler, hh04: Boiler + Waschmaschine, hh05: alle fünf. Die Wärmepumpe ist `modulating`, läuft 10–16 Uhr und hat einen Kommentar zur Vereinfachung (spec §7.2). `min_power_kw`/`min_run_min` sind nicht gesetzt. Tests: `tests/unit/test_example_devices.py` (Laden, Arten, Wärmepumpe inkl. Kommentar, keine Mindestleistung, online = offline, Baseline über ganz 2023 inkl. DST). `test_devices_flow_into_baseline_balance` entfernt jetzt erst die Beispielgeräte. `_UNIT_HINTS` kennt `kW`/`Minuten`.
-- Neue Abhängigkeiten: –
-- Offene Probleme (nit): Die Geräteblöcke sind in beiden YAMLs dupliziert (durch Test abgesichert). Wasch- und Spülmaschine laufen vereinfacht einmal täglich.
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F4-04 oder F5-01).

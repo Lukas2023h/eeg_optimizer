@@ -25,23 +25,42 @@ variable. A task whose window is shorter than the run (spring DST day) has no st
 start, so its profile is exact (no rescaling).
 
 Modulating devices without ``min_run_min``/``min_power_kw`` only have continuous variables;
-without programs the model is a pure LP. ``min_run_min``/``min_power_kw`` (F5-04) and the
-objectives ``min_cost``/``min_co2`` (F5-05) are not part of this model yet and raise
+without programs the model is a pure LP. With one of the options (F5-04) every window interval
+gets a binary ``on[d, t]`` ("running") with ``floor · on ≤ x[d, t] ≤ cap · on``:
+
+* ``floor = kw_to_kwh(min_power_kw)`` if ``min_power_kw`` is set. Otherwise (only
+  ``min_run_min``) ``floor = min(RUN_FLOOR_SHARE · cap, energy / window intervals)``: a tiny
+  positive power, so that "running" means ``x > 0`` and a run cannot hide zero-power gaps. The
+  second term keeps every task that is feasible without the floor feasible with it.
+* ``min_run_min`` (``m = min_run_min / 15`` intervals): a start indicator
+  ``s[d, t] ≥ on[t] - on[t-1]`` (``on`` before the window = 0) and ``on[t] ≥ Σ_{t-m < k ≤ t}
+  s[k]``, so every run lasts at least ``m`` intervals. Starts later than ``m`` intervals before
+  the window end do not exist, so a run never needs the time after the window. Is the window
+  shorter than ``m`` (spring DST), :class:`BlockSolveError` is raised while building.
+
+A task whose energy cannot be split into runs that respect ``min_power_kw`` (e.g. 1 kWh at
+least 4.1 kW per 15 min) is infeasible; :func:`solve_block` raises :class:`BlockSolveError`.
+The objectives ``min_cost``/``min_co2`` (F5-05) are not part of this model yet and raise
 :class:`UnsupportedModelError` instead of being ignored.
 
-The baseline schedule is a feasible point of the model (same tasks, same energy, same power
-limit), so the optimum is never worse than the baseline (INV-3). A solver failure raises
+Without min options the baseline schedule is a feasible point of the model (same tasks, same
+energy, same power limit), so the optimum is never worse than the baseline (INV-3). The
+baseline may violate ``min_power_kw``/``min_run_min`` (devices.py), so with min options INV-3
+is not guaranteed by the model. A solver failure raises
 :class:`BlockSolveError`; the runner (F5-07) catches it and falls back.
 
 CBC reports values with about 8 significant digits; :func:`solve_block` therefore rescales
 each modulating task to its exact energy (deviations above :data:`ENERGY_REPAIR_LIMIT_KWH` are
-errors).
+errors). With min options the repair only touches running intervals and stays in
+``[floor, cap]`` there, so the minimum power and the run lengths are kept exactly.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Final
 
 import numpy as np
@@ -57,7 +76,12 @@ SUPPORTED_OBJECTIVES: Final[tuple[Objective, ...]] = ("max_shared",)
 ENERGY_REPAIR_LIMIT_KWH: Final = 1e-4
 """Largest task-energy deviation of a solver result that counts as rounding noise."""
 BINARY_TOLERANCE: Final = 1e-6
-"""Largest distance of a solved start binary from 0 or 1 that counts as rounding noise."""
+"""Largest distance of a solved binary from 0 or 1 that counts as rounding noise."""
+SUMMATION_NOISE_KWH: Final = 1e-9
+"""Energy deviation that only stems from float summation order (all values at a bound)."""
+RUN_FLOOR_SHARE: Final = 0.01
+"""Share of ``cap`` used as minimum energy per running interval when only ``min_run_min`` is
+set (see module docstring)."""
 
 
 class UnsupportedModelError(ValueError):
@@ -79,6 +103,10 @@ class TaskSpan:
     """Program only: binary ``LpVariable`` per possible start ``start + i`` (``i`` = position)."""
     run_intervals: int = 0
     """Program only: number of intervals of one run (``duration_min / 15``)."""
+    on_vars: tuple[Any, ...] = ()
+    """Modulating with min options only: binary "running" ``LpVariable`` per window interval."""
+    floor_kwh: float = 0.0
+    """Modulating with min options only: minimum energy of a running interval."""
 
 
 @dataclass(frozen=True)
@@ -118,11 +146,6 @@ def _check_supported(inputs: OptimizationInputs, objective: Objective) -> None:
                     f"device {household_id}/{device.id}: kind {device.kind!r} is not "
                     "supported by the block model yet"
                 )
-            if device.needs_binaries:
-                raise UnsupportedModelError(
-                    f"device {household_id}/{device.id}: min_run_min/min_power_kw are not "
-                    "supported by the block model yet"
-                )
 
 
 def _inflexible_total(inputs: OptimizationInputs) -> np.ndarray:
@@ -140,12 +163,87 @@ def _inflexible_total(inputs: OptimizationInputs) -> np.ndarray:
 
 
 def _add_modulating_task(
-    problem: pulp.LpProblem, row: list[Any], span: TaskSpan, cap: float, name: str
-) -> None:
-    """One continuous variable per window interval, the task energy as equality."""
+    problem: pulp.LpProblem,
+    row: list[Any],
+    span: TaskSpan,
+    device: ModulatingDevice,
+    *,
+    cap: float,
+    name: str,
+) -> TaskSpan:
+    """One continuous variable per window interval, the task energy as equality.
+
+    With ``min_power_kw``/``min_run_min`` also the binaries ``on`` (see module docstring).
+    """
     for t in range(span.start, span.stop):
         row[t] = pulp.LpVariable(f"x_{name}_{t}", lowBound=0.0, upBound=cap)
     problem += pulp.lpSum(row[span.start : span.stop]) == span.energy_kwh, f"energy_{name}"
+    if not device.needs_binaries:
+        return span
+    length = span.stop - span.start
+    if device.min_power_kw is not None:
+        floor = float(kw_to_kwh(device.min_power_kw))
+    else:
+        floor = min(RUN_FLOOR_SHARE * cap, span.energy_kwh / length)
+    on = tuple(
+        pulp.LpVariable(f"on_{name}_{t}", cat=pulp.LpBinary) for t in range(span.start, span.stop)
+    )
+    for i, t in enumerate(range(span.start, span.stop)):
+        problem += row[t] <= cap * on[i], f"on_cap_{name}_{t}"
+        problem += row[t] >= floor * on[i], f"on_floor_{name}_{t}"
+    # Integer rounding of floor · Σ on ≤ energy ≤ cap · Σ on: same integer solutions, much
+    # tighter relaxation (CBC otherwise spreads fractional "on" over the whole window).
+    fewest, most = _running_count_bounds(span.energy_kwh, floor, cap, length)
+    problem += pulp.lpSum(on) >= fewest, f"on_fewest_{name}"
+    problem += pulp.lpSum(on) <= most, f"on_most_{name}"
+    if device.min_run_min is not None:
+        run, rest = divmod(timedelta(minutes=device.min_run_min), INTERVAL)
+        if rest:
+            raise UnsupportedModelError(
+                f"device {device.id}: min_run_min {device.min_run_min} is not on the 15-min grid"
+            )
+        _add_min_run(problem, on, run, span, name)
+    return TaskSpan(span.start, span.stop, span.energy_kwh, on_vars=on, floor_kwh=floor)
+
+
+def _running_count_bounds(energy: float, floor: float, cap: float, length: int) -> tuple[int, int]:
+    """Fewest and most running intervals that can carry ``energy`` within ``[floor, cap]``.
+
+    A relative slack of :data:`BINARY_TOLERANCE` keeps float noise (``energy / cap`` = 3.0000001)
+    from cutting off a feasible count.
+    """
+    fewest = math.ceil(energy / cap * (1.0 - BINARY_TOLERANCE))
+    most = (
+        length
+        if floor <= 0.0
+        else min(length, math.floor(energy / floor * (1.0 + BINARY_TOLERANCE)))
+    )
+    return fewest, most
+
+
+def _add_min_run(
+    problem: pulp.LpProblem, on: tuple[Any, ...], run: int, span: TaskSpan, name: str
+) -> None:
+    """Every run of ``on`` lasts at least ``run`` intervals and ends inside the window."""
+    length = len(on)
+    if run > length:
+        raise BlockSolveError(
+            f"min_run of {run} intervals does not fit into the window of {length} intervals "
+            f"at block position {span.start} (spring DST shortens the window by 1 h)"
+        )
+    starts = [
+        pulp.LpVariable(f"s_{name}_{span.start + i}", lowBound=0.0, upBound=1.0)
+        for i in range(length - run + 1)
+    ]
+    for i in range(length):
+        switched_on = on[i] - on[i - 1] if i > 0 else on[i]
+        if i < len(starts):
+            problem += starts[i] >= switched_on, f"run_start_{name}_{i}"
+        else:
+            problem += switched_on <= 0, f"run_late_{name}_{i}"
+        recent = starts[max(0, i - run + 1) : i + 1]
+        if recent:
+            problem += on[i] >= pulp.lpSum(recent), f"run_min_{name}_{i}"
 
 
 def _add_program_task(
@@ -180,10 +278,12 @@ def build_block_model(inputs: OptimizationInputs, objective: Objective) -> Block
     """Build the (MI)LP of one block (see module docstring).
 
     Raises:
-        UnsupportedModelError: objective, device kind or device options not supported yet,
+        UnsupportedModelError: objective, device kind not supported yet, ``min_run_min`` off
+            the 15-min grid (devices built without ``parse_device``),
             a device of an unknown household, or a load frame not on the index of the inputs.
         units.FrameValidationError: PV or load frames not in the internal format.
-        BlockSolveError: a program task has no start whose run fits into its window.
+        BlockSolveError: a program task has no start whose run fits into its window, or a
+            ``min_run_min`` is longer than the window of a task.
     """
     _check_supported(inputs, objective)
     unknown = sorted(set(inputs.devices) - set(inputs.loads))
@@ -214,7 +314,7 @@ def build_block_model(inputs: OptimizationInputs, objective: Objective) -> Block
                 if isinstance(device, ProgramDevice):
                     span = _add_program_task(problem, row, span, device, cap=cap, name=name)
                 else:
-                    _add_modulating_task(problem, row, span, cap, name)
+                    span = _add_modulating_task(problem, row, span, device, cap=cap, name=name)
                 spans.append(span)
             for t, item in enumerate(row):
                 if not isinstance(item, float):
@@ -237,28 +337,54 @@ def _value(item: Any) -> float:
     return float(value)
 
 
-def _exact_energy(values: np.ndarray, span: TaskSpan, cap: float, where: str) -> None:
-    """Make ``values[span]`` sum to the task energy exactly, staying within ``[0, cap]``.
+def _exact_energy(
+    values: np.ndarray,
+    span: TaskSpan,
+    cap: float,
+    where: str,
+    running: np.ndarray | None = None,
+) -> None:
+    """Make ``values[span]`` sum to the task energy exactly, staying within the bounds.
+
+    Bounds per interval: ``[0, cap]``; with ``running`` (bool per window interval, min
+    options) ``[span.floor_kwh, cap]`` where running and exactly 0 elsewhere.
 
     CBC reports values with about 8 significant digits, so a task may miss its energy by
-    ~1e-6 kWh. A missing amount goes into the headroom below ``cap`` (proportionally), a
-    surplus is removed proportionally to the values. Anything beyond solver noise raises.
+    ~1e-6 kWh. A missing amount goes into the headroom below the upper bound
+    (proportionally), a surplus is removed proportionally to the room above the lower bound.
+    Anything beyond solver noise raises.
     """
-    part = np.clip(values[span.start : span.stop], 0.0, cap)
+    if running is None:
+        lower = np.zeros(span.stop - span.start)
+        upper = np.full(span.stop - span.start, cap)
+    else:
+        lower = np.where(running, span.floor_kwh, 0.0)
+        upper = np.where(running, cap, 0.0)
+    part = np.clip(values[span.start : span.stop], lower, upper)
     diff = span.energy_kwh - float(part.sum())
     if abs(diff) > ENERGY_REPAIR_LIMIT_KWH:
         raise BlockSolveError(
             f"{where}: solver result misses the task energy by {diff:.3g} kWh "
             f"(limit {ENERGY_REPAIR_LIMIT_KWH:g} kWh)"
         )
-    if diff > 0.0:
-        headroom = cap - part
-        if float(headroom.sum()) <= 0.0:
-            raise BlockSolveError(f"{where}: no headroom left to reach the task energy")
-        part = part + diff * headroom / float(headroom.sum())
-    elif diff < 0.0:
-        part = part * (span.energy_kwh / float(part.sum()))
-    values[span.start : span.stop] = np.clip(part, 0.0, cap)
+    room = upper - part if diff > 0.0 else part - lower
+    if diff != 0.0:
+        if float(room.sum()) > 0.0:
+            part = part + diff * room / float(room.sum())
+        elif abs(diff) > SUMMATION_NOISE_KWH:
+            raise BlockSolveError(f"{where}: no room left to reach the task energy exactly")
+        # else: every interval sits at its bound and diff is summation-order noise (energy an
+        # exact multiple of floor or cap); the values are already right.
+    values[span.start : span.stop] = np.clip(part, lower, upper)
+
+
+def _binary_values(variables: tuple[Any, ...], where: str) -> np.ndarray:
+    """Solved binaries as bool array; a value off 0/1 by more than BINARY_TOLERANCE raises."""
+    values = np.asarray([_value(var) for var in variables], dtype=float)
+    noisy = np.minimum(np.abs(values), np.abs(values - 1.0)) > BINARY_TOLERANCE
+    if noisy.any():
+        raise BlockSolveError(f"{where}: {int(noisy.sum())} binary variable(s) not 0 or 1")
+    return values > 0.5
 
 
 def _chosen_start(span: TaskSpan, where: str) -> int:
@@ -275,9 +401,17 @@ def _chosen_start(span: TaskSpan, where: str) -> int:
 
 
 def solve_block(
-    inputs: OptimizationInputs, objective: Objective, time_limit_s: float | None = None
+    inputs: OptimizationInputs,
+    objective: Objective,
+    time_limit_s: float | None = None,
+    mip_gap: float | None = None,
 ) -> dict[str, dict[str, pd.Series]]:
     """Optimal schedule of all devices in ``inputs`` for ``objective`` (Series ``device_kwh``).
+
+    ``mip_gap`` (relative, e.g. ``1e-3``): CBC may stop once the best schedule is within this
+    share of the best possible bound; the result is then optimal only up to the gap (only
+    matters with binaries, see min options/programs). ``None`` = CBC default (proven optimum
+    up to CBC's own tolerance).
 
     Modulating tasks: solver rounding is repaired per task (:func:`_exact_energy`), values stay
     in ``[0, kw_to_kwh(power_kw)]`` and every task gets its energy up to float precision.
@@ -288,11 +422,18 @@ def solve_block(
         UnsupportedModelError, units.FrameValidationError: see :func:`build_block_model`.
         BlockSolveError: a program does not fit into its window (see :func:`build_block_model`),
             CBC status is not ``Optimal`` (infeasible, time limit, ...), a task energy is
-            missed by more than :data:`ENERGY_REPAIR_LIMIT_KWH`, or a program has not exactly
-            one start binary at 1.
+            missed by more than :data:`ENERGY_REPAIR_LIMIT_KWH`, a program has not exactly
+            one start binary at 1, or a "running" binary is not 0/1. An energy that cannot be
+            met with ``min_power_kw``/``min_run_min`` shows up as status ``'Infeasible'``.
+
+    With min options a task runs (``> 0``) only in intervals whose binary ``on`` is 1, there
+    with at least ``floor_kwh`` (``kw_to_kwh(min_power_kw)``) and in runs of at least
+    ``min_run_min``.
     """
+    if mip_gap is not None and not 0.0 <= mip_gap < 1.0:
+        raise ValueError(f"mip_gap must be in [0, 1), got {mip_gap}")
     model = build_block_model(inputs, objective)
-    solver = pulp.PULP_CBC_CMD(msg=False, timeLimit=time_limit_s)
+    solver = pulp.PULP_CBC_CMD(msg=False, timeLimit=time_limit_s, gapRel=mip_gap)
     model.problem.solve(solver)
     status = pulp.LpStatus[model.problem.status]
     # With a time limit CBC may report status Optimal for a merely feasible solution.
@@ -319,7 +460,8 @@ def solve_block(
                     values[span.start : span.stop] = [
                         _value(item) for item in dvars.row[span.start : span.stop]
                     ]
-                    _exact_energy(values, span, dvars.cap_kwh, where)
+                    running = _binary_values(span.on_vars, where) if span.on_vars else None
+                    _exact_energy(values, span, dvars.cap_kwh, where, running)
             schedule[household_id][device_id] = pd.Series(
                 values, index=model.index, name=DEVICE_COLUMN
             )
@@ -329,6 +471,8 @@ def solve_block(
 __all__ = [
     "BINARY_TOLERANCE",
     "ENERGY_REPAIR_LIMIT_KWH",
+    "RUN_FLOOR_SHARE",
+    "SUMMATION_NOISE_KWH",
     "SUPPORTED_OBJECTIVES",
     "BlockModel",
     "BlockSolveError",

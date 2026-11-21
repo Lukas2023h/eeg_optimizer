@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-19 – F4-03 – Geräte in der Beispielgemeinschaft
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `config/example_community.yaml` und `_offline.yaml` haben jetzt gleiche, kommentierte Geräte. hh01: E-Auto + Waschmaschine, hh02: Geschirrspüler, hh03: Wärmepumpe + Geschirrspüler, hh04: Boiler + Waschmaschine, hh05: alle fünf. Die Wärmepumpe ist `modulating`, läuft 10–16 Uhr und hat einen Kommentar zur Vereinfachung (spec §7.2). `min_power_kw`/`min_run_min` sind nicht gesetzt. Tests: `tests/unit/test_example_devices.py` (Laden, Arten, Wärmepumpe inkl. Kommentar, keine Mindestleistung, online = offline, Baseline über ganz 2023 inkl. DST). `test_devices_flow_into_baseline_balance` entfernt jetzt erst die Beispielgeräte. `_UNIT_HINTS` kennt `kW`/`Minuten`.
+- Neue Abhängigkeiten: –
+- Offene Probleme (nit): Die Geräteblöcke sind in beiden YAMLs dupliziert (durch Test abgesichert). Wasch- und Spülmaschine laufen vereinfacht einmal täglich.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F4-04 oder F5-01).
+
 ## 2026-11-19 – F4-02 – Baseline-Fahrplan flexibler Lasten
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: In `devices.py` neu `Task`, `tasks`, `baseline_schedule` (volle Leistung ab `baseline_start`, Rest im letzten Intervall, Programm feste Dauer; nicht existente Uhrzeit → 03:00, doppelte → erstes Auftreten; echte Intervalle zählen; Lauf über Fensterende → `BaselineScheduleError`) und `baseline_loads`. `analysis.analyze` rechnet die Baseline-Bilanz jetzt mit Gerätelasten. Tests: `tests/unit/test_baseline_schedule.py` (Werte, Mitternacht, beide DST-Tage, ganzes Jahr, Lasten addiert, Ist-Analyse mit E-Auto) und `tests/property/test_baseline_schedule.py` (Tagesenergie, Leistungsgrenze, nur im Fenster, Aufgaben disjunkt, über DST-Tage). architecture.md §4 ergänzt.

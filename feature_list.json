@@ -444,7 +444,7 @@
       "Mit min_run_min: jeder Betriebsblock ist mindestens so lang (Property-Test)",
       "Ohne beide Parameter bleibt das Modell ein LP (Test aus F5-02 weiter grün)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5-05",

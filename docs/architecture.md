@@ -183,10 +183,12 @@ def evaluate(schedule: DeviceSchedule, inputs: OptimizationInputs, objective: Ob
 # ObjectiveInputError. Hilfen: schedule_loads (Last + Geräte), score_balance(balance, inputs, objective),
 # baseline_device_schedule(inputs). Baseline und Optimierung werden mit derselben Funktion bewertet (INV-3).
 
-# optimize/milp.py (F5-02, F5-03)
+# optimize/milp.py (F5-02, F5-03, F5-04)
 def build_block_model(inputs: OptimizationInputs, objective: Objective) -> BlockModel
-def solve_block(inputs: OptimizationInputs, objective: Objective, time_limit_s: float | None = None)
+def solve_block(inputs: OptimizationInputs, objective: Objective, time_limit_s: float | None = None,
+                mip_gap: float | None = None)
     -> dict[household_id, dict[device_id, pd.Series]]   # DeviceSchedule, device_kwh, für evaluate
+# mip_gap: relative MIP-Lücke für CBC (None = bewiesenes Optimum). Nur mit Binärvariablen relevant.
 # inputs bereits auf den Block geschnitten. Aufgaben = devices.tasks(device, block_index) (gleiche Menge
 # wie Baseline). BlockModel: problem (pulp.LpProblem), index, device_vars[hh][dev] = DeviceVars(row je
 # Intervall: LpVariable (modulating) bzw. LpAffineExpression der Startbinärvariablen (program) oder 0.0
@@ -195,8 +197,16 @@ def solve_block(inputs: OptimizationInputs, objective: Objective, time_limit_s: 
 # span.start + i), Σ = 1; x_t = cap · Σ_{s ≤ t < s+n} y_s. Passt der Lauf nicht ins Fenster (Frühjahrs-
 # DST) → BlockSolveError schon beim Aufbau. Ergebnis aus dem gewählten Start rekonstruiert (exakt cap bzw. 0;
 # nicht genau eine Binärvariable = 1 → BlockSolveError).
-# Modulating ohne min_run_min/min_power_kw nur stetige Variablen (LP). min-Optionen (F5-04),
-# min_cost/min_co2 (F5-05) → UnsupportedModelError (nie ignoriert).
+# Modulating ohne min_run_min/min_power_kw nur stetige Variablen (LP). Mit einer min-Option (F5-04)
+# je Fensterintervall eine Binärvariable on (TaskSpan.on_vars, floor_kwh): floor·on ≤ x ≤ cap·on,
+# floor = kw_to_kwh(min_power_kw), sonst (nur min_run_min) min(1 % cap, Energie/Fensterintervalle),
+# damit „Betrieb“ x > 0 heißt. Zusätzlich ceil(E/cap) ≤ Σ on ≤ floor(E/floor) (gleiche ganzzahlige
+# Lösungen, viel schärfere Relaxation). min_run_min: Startindikator s_t ≥ on_t − on_{t−1},
+# on_t ≥ Σ der Starts der letzten m Intervalle, keine Starts in den letzten m−1 Intervallen des
+# Fensters; m > Fenster (Frühjahrs-DST) → BlockSolveError beim Aufbau. Nicht aufteilbare Energie
+# (z. B. 1 kWh bei ≥ 4,1 kW) → CBC „Infeasible“ → BlockSolveError. Die Reparatur der CBC-Rundung
+# bleibt bei on = 1 in [floor, cap] und setzt on = 0 exakt auf 0. min_cost/min_co2 (F5-05) →
+# UnsupportedModelError (nie ignoriert).
 # CBC-Status ≠ Optimal → BlockSolveError (Runner fängt). CBC liefert ~8 signifikante Stellen, daher
 # reskaliert solve_block jede modulierende Aufgabe auf die exakte Energie (> 1e-4 kWh → BlockSolveError).
 

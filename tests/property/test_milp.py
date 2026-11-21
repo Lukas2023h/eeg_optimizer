@@ -1,6 +1,7 @@
 """Property tests for the block (MI)LP: INV-2 (device constraints) and INV-3 (never worse).
 
-F5-02: modulating devices only; F5-03: mixed with program devices (start binaries).
+F5-02: modulating devices only; F5-03: mixed with program devices (start binaries);
+F5-04: modulating devices with min_power_kw / min_run_min.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from hypothesis import HealthCheck, event, given, settings
 from hypothesis import strategies as st
 
 from eeg_optimizer.config import TariffConfig
-from eeg_optimizer.devices import Device, ProgramDevice, parse_device, tasks
+from eeg_optimizer.devices import Device, ModulatingDevice, ProgramDevice, parse_device, tasks
 from eeg_optimizer.optimize.milp import solve_block
 from eeg_optimizer.optimize.objectives import (
     OptimizationInputs,
@@ -100,6 +101,45 @@ def program_devices(draw: st.DrawFn, device_id: str) -> Device:
 
 
 @st.composite
+def min_option_devices(draw: st.DrawFn, device_id: str) -> Device:
+    """Random modulating devices with min_power_kw and/or min_run_min, feasible by design.
+
+    The energy is ``slots · per`` with ``slots ≥ min_run`` intervals and
+    ``kw_to_kwh(min_power) ≤ per ≤ cap``, so one run of ``slots`` intervals at ``per`` is
+    feasible; ``slots`` leaves 4 intervals spare for the spring DST day.
+    """
+    start = draw(grid_times)
+    window_slots = draw(st.integers(5, SLOTS_PER_DAY - 1))
+    end_minutes = (start.hour * 60 + start.minute + window_slots * 15) % 1440
+    end = time(end_minutes // 60, end_minutes % 60)
+    offset = draw(st.integers(0, window_slots - 5))
+    minutes = (start.hour * 60 + start.minute + offset * 15) % 1440
+    baseline = time(minutes // 60, minutes % 60)
+    usable_slots = window_slots - offset - 4
+    power = draw(st.floats(0.5, 22.0))
+    use_power, use_run = draw(st.sampled_from([(True, False), (False, True), (True, True)]))
+    min_power = draw(st.floats(0.05, 1.0)) * power if use_power else None
+    run_slots = draw(st.integers(1, usable_slots)) if use_run else None
+    slots = draw(st.integers(run_slots or 1, usable_slots))
+    cap = kw_to_kwh(KW(power))
+    lower = 0.0 if min_power is None else kw_to_kwh(KW(min_power))
+    per = lower + draw(st.floats(0.01, 1.0)) * (cap - lower)
+    raw: dict[str, Any] = {
+        "id": device_id,
+        "kind": "modulating",
+        "power_kw": power,
+        "energy_kwh_per_day": slots * per,
+        "window": {"start": f"{start:%H:%M}", "end": f"{end:%H:%M}"},
+        "baseline_start": f"{baseline:%H:%M}",
+    }
+    if min_power is not None:
+        raw["min_power_kw"] = min_power
+    if run_slots is not None:
+        raw["min_run_min"] = run_slots * 15
+    return parse_device(raw, device_id)
+
+
+@st.composite
 def mixed_devices(draw: st.DrawFn, device_id: str) -> Device:
     """Program or modulating device with equal chance."""
     if draw(st.booleans()):
@@ -108,7 +148,9 @@ def mixed_devices(draw: st.DrawFn, device_id: str) -> Device:
 
 
 @st.composite
-def block_inputs(draw: st.DrawFn, *, with_programs: bool = False) -> OptimizationInputs:
+def block_inputs(
+    draw: st.DrawFn, *, with_programs: bool = False, with_min_options: bool = False
+) -> OptimizationInputs:
     first = draw(first_days)
     n_days = draw(st.integers(1, 2))
     index = _index(first, n_days)
@@ -126,6 +168,8 @@ def block_inputs(draw: st.DrawFn, *, with_programs: bool = False) -> Optimizatio
         )
         n_devices = draw(st.integers(0, 2))
         kind = mixed_devices if with_programs else modulating_devices
+        if with_min_options:
+            kind = min_option_devices
         devices[household_id] = tuple(draw(kind(f"d{k}")) for k in range(n_devices))
     return OptimizationInputs(
         pv=pd.DataFrame({"pv_kwh": pv}, index=index),
@@ -210,6 +254,46 @@ def test_inv2_program_runs_once_in_one_piece_inside_the_window(
                 assert abs(part.sum() - task.energy_kwh) <= TOL
             assert values.min() >= 0.0
             assert values.max() <= cap + 1e-9
+            assert np.abs(values[~inside]).max(initial=0.0) <= TOL
+
+
+def _run_lengths(running: np.ndarray) -> list[int]:
+    edges = np.diff(np.concatenate([[0], running.astype(int), [0]]))
+    return list(np.flatnonzero(edges == -1) - np.flatnonzero(edges == 1))
+
+
+@_SETTINGS
+@given(block_inputs(with_min_options=True))
+def test_inv2_min_power_and_min_run_are_kept(inputs: OptimizationInputs) -> None:
+    # The property is feasibility, not optimality. Proving the optimum of large semi-continuous
+    # devices can take CBC minutes (seen: 3 of 600 random 2-day blocks > 20 s); a 1 % gap
+    # keeps every example below a few seconds and returns a schedule from the same model.
+    schedule = solve_block(inputs, "max_shared", mip_gap=1e-2)
+
+    index = inputs.index
+    for household_id, devices in inputs.devices.items():
+        for device in devices:
+            assert isinstance(device, ModulatingDevice)
+            values = schedule[household_id][device.id].to_numpy()
+            cap = kw_to_kwh(KW(device.power_kw), INTERVAL)
+            assert values.min() >= 0.0
+            assert values.max() <= cap + 1e-9
+            inside = np.zeros(len(index), dtype=bool)
+            for task in tasks(device, index):
+                in_window = (index >= task.window_start) & (index < task.window_end)
+                inside |= in_window
+                part = values[in_window]
+                assert abs(part.sum() - task.energy_kwh) <= TOL
+                running = part > 0.0
+                if device.min_power_kw is not None:
+                    event("min_power_kw")
+                    # Every interval with operation has at least min_power_kw.
+                    assert part[running].min() >= kw_to_kwh(device.min_power_kw) - 1e-12
+                if device.min_run_min is not None:
+                    event("min_run_min")
+                    # Every run (block of operation) inside the window is long enough.
+                    min_slots = device.min_run_min // 15
+                    assert min(_run_lengths(running)) >= min_slots
             assert np.abs(values[~inside]).max(initial=0.0) <= TOL
 
 

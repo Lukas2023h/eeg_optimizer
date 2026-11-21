@@ -169,10 +169,16 @@ def test_program_devices_are_planned_not_ignored() -> None:
 
 
 @pytest.mark.parametrize("options", [{"min_run_min": 60}, {"min_power_kw": 1.0}])
-def test_min_options_are_rejected_not_ignored(options: dict[str, float | int]) -> None:
+def test_min_options_are_planned_not_ignored(options: dict[str, float | int]) -> None:
+    # Since F5-04 min options are part of the model (F5-02 rejected them); see
+    # test_milp_min_options.py. Both options force binaries, the surplus hour is still used.
     inputs = _inputs(_surplus_12_to_13(), (_boiler(**options),))
-    with pytest.raises(UnsupportedModelError, match="min_run_min/min_power_kw"):
-        solve_block(inputs, "max_shared")
+    assert build_block_model(inputs, "max_shared").problem.isMIP()
+
+    boiler = solve_block(inputs, "max_shared")["a"]["boiler"]
+
+    np.testing.assert_allclose(boiler.iloc[48:52].to_numpy(), 0.5, atol=1e-6)
+    assert boiler.sum() == pytest.approx(2.0, abs=1e-9)
 
 
 def test_household_without_devices_and_no_devices_at_all() -> None:

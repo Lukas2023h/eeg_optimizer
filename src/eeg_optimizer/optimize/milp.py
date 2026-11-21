@@ -66,6 +66,16 @@ CBC reports values with about 8 significant digits; :func:`solve_block` therefor
 each modulating task to its exact energy (deviations above :data:`ENERGY_REPAIR_LIMIT_KWH` are
 errors). With min options the repair only touches running intervals and stays in
 ``[floor, cap]`` there, so the minimum power and the run lengths are kept exactly.
+
+CBC 2.10.3 (bundled with PuLP 2.9) has a bug in its MIP preprocessing (Cgl): on some blocks
+with program binaries it reports ``Optimal`` but returns a modulating device far above its
+upper bound (example community 2023, ``min_cost``: an EV with all 8 kWh in one interval with a
+cap of 2.75 kWh). :func:`solve_block` therefore checks the bounds of every modulating variable
+(:data:`BOUND_TOLERANCE_KWH`) and solves such a block once more with ``preprocess off``; the
+result is still CBC's proven optimum. Preprocessing stays on by default because it speeds up the
+hard blocks with min options (INV-5). A violation after the second solve raises
+:class:`BlockSolveError`. The second solve gets the full ``time_limit_s`` again, so such a block
+may take up to twice the limit.
 """
 
 from __future__ import annotations
@@ -104,6 +114,10 @@ has a negative value (:func:`_force_shared_to_minimum`). With PV of ~1e-12 kWh n
 ~1e-9 kWh CBC reports such a model as infeasible (CBC tolerances ~1e-7). Below the limit the
 model may share less than the balance; the score differs by at most ``pv · |shared_weight|``
 (< 1e-6 kWh · 1 €/kWh)."""
+BOUND_TOLERANCE_KWH: Final = 1e-6
+"""Largest distance a solved modulating variable may lie outside ``[0, cap]`` and still count as
+rounding noise (CBC primal tolerance ~1e-7). More is a solver error (module docstring, CBC
+preprocessing bug) and triggers the solve without preprocessing."""
 RUN_FLOOR_SHARE: Final = 0.01
 """Share of ``cap`` used as minimum energy per running interval when only ``min_run_min`` is
 set (see module docstring)."""
@@ -554,7 +568,8 @@ def solve_block(
     Raises:
         UnsupportedModelError, units.FrameValidationError: see :func:`build_block_model`.
         BlockSolveError: a program does not fit into its window (see :func:`build_block_model`),
-            CBC status is not ``Optimal`` (infeasible, time limit, ...), a task energy is
+            CBC status is not ``Optimal`` (infeasible, time limit, ...), a modulating variable
+            is outside ``[0, cap]`` also after the solve without preprocessing, a task energy is
             missed by more than :data:`ENERGY_REPAIR_LIMIT_KWH`, a program has not exactly
             one start binary at 1, or a "running" binary is not 0/1. An energy that cannot be
             met with ``min_power_kw``/``min_run_min`` shows up as status ``'Infeasible'``.
@@ -566,7 +581,30 @@ def solve_block(
     if mip_gap is not None and not 0.0 <= mip_gap < 1.0:
         raise ValueError(f"mip_gap must be in [0, 1), got {mip_gap}")
     model = build_block_model(inputs, objective)
-    solver = pulp.PULP_CBC_CMD(msg=False, timeLimit=time_limit_s, gapRel=mip_gap)
+    run_cbc(model, time_limit_s=time_limit_s, mip_gap=mip_gap, preprocess=True)
+    if bound_violations(model):
+        # CBC preprocessing bug (module docstring): same model once more without it.
+        run_cbc(model, time_limit_s=time_limit_s, mip_gap=mip_gap, preprocess=False)
+        violations = bound_violations(model)
+        if violations:
+            raise BlockSolveError(
+                f"block {model.index[0].isoformat()} to {model.index[-1].isoformat()}: "
+                f"solver result outside the device bounds also without preprocessing "
+                f"({'; '.join(violations[:3])})"
+            )
+    return _schedule(model)
+
+
+def run_cbc(
+    model: BlockModel, *, time_limit_s: float | None, mip_gap: float | None, preprocess: bool
+) -> None:
+    """Solve ``model`` with CBC; ``preprocess=False`` switches the MIP preprocessing off.
+
+    Raises:
+        BlockSolveError: status not ``Optimal`` (also a time limit without proven optimum).
+    """
+    options = [] if preprocess else ["preprocess off"]
+    solver = pulp.PULP_CBC_CMD(msg=False, timeLimit=time_limit_s, gapRel=mip_gap, options=options)
     model.problem.solve(solver)
     status = pulp.LpStatus[model.problem.status]
     # With a time limit CBC may report status Optimal for a merely feasible solution.
@@ -577,6 +615,30 @@ def solve_block(
             f"block {model.index[0].isoformat()} to {model.index[-1].isoformat()}: "
             f"CBC status {status!r}"
         )
+
+
+def bound_violations(model: BlockModel) -> list[str]:
+    """Modulating variables of the solved ``model`` outside ``[0, cap]`` by more than
+    :data:`BOUND_TOLERANCE_KWH`, one text per variable (name, value, cap); empty = all inside.
+
+    Program energies are expressions of the start binaries; those are checked when the schedule
+    is read (:func:`_chosen_start`).
+    """
+    found: list[str] = []
+    for rows in model.device_vars.values():
+        for dvars in rows.values():
+            for span in dvars.spans:
+                if span.start_vars:
+                    continue
+                for item in dvars.row[span.start : span.stop]:
+                    value = _value(item)
+                    if value < -BOUND_TOLERANCE_KWH or value > dvars.cap_kwh + BOUND_TOLERANCE_KWH:
+                        found.append(f"{item.name} = {value:.6g} kWh, cap {dvars.cap_kwh:g} kWh")
+    return found
+
+
+def _schedule(model: BlockModel) -> dict[str, dict[str, pd.Series]]:
+    """Device schedule of the solved ``model`` (see :func:`solve_block`)."""
     schedule: dict[str, dict[str, pd.Series]] = {}
     for household_id, rows in model.device_vars.items():
         schedule[household_id] = {}
@@ -603,6 +665,7 @@ def solve_block(
 
 __all__ = [
     "BINARY_TOLERANCE",
+    "BOUND_TOLERANCE_KWH",
     "ENERGY_REPAIR_LIMIT_KWH",
     "RUN_FLOOR_SHARE",
     "SUMMATION_NOISE_KWH",
@@ -613,8 +676,10 @@ __all__ = [
     "ObjectiveWeights",
     "TaskSpan",
     "UnsupportedModelError",
+    "bound_violations",
     "build_block_model",
     "inflexible_total",
     "objective_weights",
+    "run_cbc",
     "solve_block",
 ]

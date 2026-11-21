@@ -526,7 +526,7 @@
       "Test mit config/example_community_offline.yaml: fallback_ratio == 0 für max_shared, min_cost, min_co2",
       "Network-Test mit config/example_community.yaml: fallback_ratio == 0 für max_shared"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5-10",

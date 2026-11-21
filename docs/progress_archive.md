@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-11-21 – F5-04 – MILP: Mindestlaufzeit und Mindestleistung
+- Ergebnis: PASS (Evaluator PASS, Reviewer: 2 major behoben)
+- Gemacht: `optimize/milp.py`: bei `min_power_kw`/`min_run_min` Binärvariable `on` je Fensterintervall (`floor·on ≤ x ≤ cap·on`, floor = Mindestleistung bzw. bei nur min_run 1 % cap), Kardinalitätsschranken `ceil(E/cap) ≤ Σ on ≤ floor(E/floor)` (machte harte Fälle von > 20 s auf < 1 s), `_add_min_run` (Startindikatoren, keine späten Starts, Frühjahrs-DST → `BlockSolveError`), Reparatur der CBC-Rundung in `[floor, cap]` bzw. exakt 0, neuer Parameter `solve_block(..., mip_gap=None)`. Tests: `tests/unit/test_milp_min_options.py`, Property-Test `test_inv2_min_power_and_min_run_are_kept` (mit `mip_gap=1e-2`, Begründung im Test). `test_min_options_are_rejected_not_ignored` → `..._planned_not_ignored` (Verhalten absichtlich geändert). architecture.md §4 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Optimalität mit min-Optionen nur an Handbeispielen geprüft (kein Brute-Force-Vergleich). Tests nutzen private Helfer (`_exact_energy`, `_running_count_bounds`) und Variablennamen (`on_0_1_`).
+- Fehlertypen: solver-precision, solver-performance
+- Anmerkung: Reviewer-major 1: Reparatur warf bei 1-ulp-Abweichung, wenn alle Werte am Rand lagen (Energie = Vielfaches von floor/cap). Reviewer-major 2: INV-3-Grenze mit min-Optionen nicht durch Test/Offene Punkte abgesichert. Eigener Befund: seed 42 hing > 10 min (schwache Relaxation).
+- Lesson: solver-precision → CLAUDE.md „Gelernte Regeln“ + Regressionstests für Werte genau auf den Schranken.
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-05).
+
 ## 2026-11-21 – F5-03 – MILP: Programm-Geräte (Startzeit-Binärvariablen)
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: `optimize/milp.py`: `_add_program_task` (eine Binärvariable je möglichem Start, Σ = 1, Energie als Ausdruck `cap · Σ y`), `_add_modulating_task` herausgelöst, `_chosen_start` (genau ein Start = 1, sonst `BlockSolveError`), `TaskSpan.start_vars`/`run_intervals`, `BINARY_TOLERANCE`. Programm passt nicht ins Fenster (Frühjahrs-DST) → `BlockSolveError` beim Aufbau. Tests: `tests/unit/test_milp_program.py` (Handbeispiel 90 min in den Überschuss 11:00–12:30, exaktes Profil, Binärstruktur, Fensterende, über Mitternacht, beide DST-Tage, gemischte Geräte, `_chosen_start`-Fehler), Property-Tests INV-2 (genau ein Lauf am Stück im Fenster) und INV-3 mit gemischten Geräten. `test_program_devices_are_rejected_not_ignored` → `..._planned_not_ignored` (Verhalten absichtlich geändert). architecture.md §4 ergänzt.

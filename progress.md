@@ -68,9 +68,18 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - F5-08/F5-09/F5-10/F6-01: `optimize.runner.optimize(OptimizationInputs.from_community(inputs, cfg), cfg.optimization.objective, cfg.optimization.solver, time_limit_s=20, mip_gap=None, progress=cb)` → `Schedule` (`devices` = DeviceSchedule übers Jahr für `schedule_loads`/`evaluate`, `block_days`, `fallback_blocks` mit `day`/`reason`/`used`, `fallback_ratio`, `score`, `baseline_score`, `runtime_s`). `progress(done, total)` je Block für den Fortschrittsbalken. Blöcke laufen sequenziell (spätere Tage gehen mit ihrer Baseline als feste Last ein, architecture §5), keine Parallelisierung. (F5-07)
 - INV-5: `tests/perf/test_performance.py` (15 HH, 60 Geräte, 2023, max_shared, MILP) läuft in 47,9 s, Puffer ca. 12 s. Der Rest steckt fast ganz in PuLP/CBC: Modellaufbau, MPS-Datei, ~30 ms Solver-Prozess je Block. Wenn es knapp wird, gibt es diese Hebel: `evaluate` je Block 2× (Geräte-Series einzeln validiert, ~15 % profiliert), Block-Bewertung über `milp.objective_weights`, `baseline_device_schedule` je Block. Große semikontinuierliche Geräte (min_power_kw) brauchen ggf. `mip_gap` (3 von 600 2-Tage-Blöcken > 20 s ohne Gap). (F5-04, F5-07, F5-08)
 - F5-09: Mit min-Optionen kann die Baseline sie verletzen und mehr teilen; dann fällt der Block zurück (MILP und Greedy schlechter als Baseline) und INV-2 gilt für diesen Block nicht, aber er wird ausgewiesen. Beispielkonfigurationen haben keine min-Optionen. Bei min_cost mit sehr negativen Spotpreisen Big-M-Binärvariablen (mehr MIP-Anteil). (F4-02, F5-04, F5-05)
+- CBC 2.10.3: Die MIP-Vorverarbeitung liefert auf manchen Blöcken Werte über der Obergrenze trotz „Optimal“. `solve_block` löst dann ohne Vorverarbeitung neu (architecture §4). Bei einem PuLP/CBC-Upgrade schlägt `test_regression_example_community_january_min_cost_has_no_fallback` absichtlich fehl (`False in calls`); dann prüfen, ob der Workaround noch nötig ist. Standardszenario-Tests (`tests/unit/test_standard_scenario.py`, 3 Jahresläufe ~48 s) laufen bewusst in check.sh. (F5-09)
 - MILP: Leerer Block-Index wird in `solve_block` nicht abgefangen (IndexError); der Runner erzeugt keine leeren Blöcke. (F5-02)
 
 ---
+
+## 2026-11-21 – F5-09 – Standardszenario ohne Rückfall
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK, 2 nits behoben)
+- Gemacht: `tests/unit/test_standard_scenario.py`: Offline-Beispielgemeinschaft 2023 mit MILP für max_shared/min_cost/min_co2 (`fallback_ratio == 0`, 365 Blöcke, Ergebnis ≥ Baseline), Network-Test Online-Beispiel max_shared (bestanden, ~20 s). Der Test fand 7 min_cost-Rückfälle (E-Auto verfehlte 5,25 kWh): CBC-2.10.3-Bug in der MIP-Vorverarbeitung (Wert 8 kWh bei Cap 2,75, Status Optimal). Fix in `optimize/milp.py`: `run_cbc`, `bound_violations` (`BOUND_TOLERANCE_KWH` 1e-6), bei Verstoß zweiter Lauf mit `preprocess off`, danach noch Verstoß → `BlockSolveError`. Tests `tests/unit/test_milp_bounds.py` (Werte genau auf Grenze/Toleranz, Neulösen, Fehler, Regression Jan 2023 echt). architecture.md §4 ergänzt. INV-5 unverändert 47,8 s. check.sh 77 s → 128 s.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Zweiter CBC-Lauf bekommt erneut das volle Zeitlimit (Docstring). `bound_violations` prüft nur modulierende Variablen (Programme über `_chosen_start`). `run_cbc`/`bound_violations` öffentlich v. a. für Tests.
+- Fehlertypen: solver-bug
+- Nächster Schritt: `scripts/next_feature.sh`.
 
 ## 2026-11-21 – F5-08 – Performance: 15 Haushalte × 1 Jahr < 60 s
 - Ergebnis: PASS (Evaluator PASS nach 1 FAIL: Laufzeit fehlte noch in progress.md; Reviewer OK, Nit „Schrittweite 0 bei Intervall feiner als Index-Einheit“ behoben)
@@ -108,13 +117,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Anmerkung: Eigener Bug (Property-Test): Big-M-Binärvariable mit PV 1e-12 neben Last 1e-9 → CBC „Infeasible“. Abweichung: architecture §5 sah Hilfsvariable `import ≥ load − shared` vor; das ist bei negativem Spotpreis nicht exakt, daher Elimination + erzwungenes Minimum.
 - Lesson: spec-abweichung → CLAUDE.md „Gelernte Regeln“ (Skill-Schritt als Vorschlag unter „Für den planner“, Skills headless gesperrt).
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-06).
-
-## 2026-11-21 – F5-04 – MILP: Mindestlaufzeit und Mindestleistung
-- Ergebnis: PASS (Evaluator PASS, Reviewer: 2 major behoben)
-- Gemacht: `optimize/milp.py`: bei `min_power_kw`/`min_run_min` Binärvariable `on` je Fensterintervall (`floor·on ≤ x ≤ cap·on`, floor = Mindestleistung bzw. bei nur min_run 1 % cap), Kardinalitätsschranken `ceil(E/cap) ≤ Σ on ≤ floor(E/floor)` (machte harte Fälle von > 20 s auf < 1 s), `_add_min_run` (Startindikatoren, keine späten Starts, Frühjahrs-DST → `BlockSolveError`), Reparatur der CBC-Rundung in `[floor, cap]` bzw. exakt 0, neuer Parameter `solve_block(..., mip_gap=None)`. Tests: `tests/unit/test_milp_min_options.py`, Property-Test `test_inv2_min_power_and_min_run_are_kept` (mit `mip_gap=1e-2`, Begründung im Test). `test_min_options_are_rejected_not_ignored` → `..._planned_not_ignored` (Verhalten absichtlich geändert). architecture.md §4 ergänzt.
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit): Optimalität mit min-Optionen nur an Handbeispielen geprüft (kein Brute-Force-Vergleich). Tests nutzen private Helfer (`_exact_energy`, `_running_count_bounds`) und Variablennamen (`on_0_1_`).
-- Fehlertypen: solver-precision, solver-performance
-- Anmerkung: Reviewer-major 1: Reparatur warf bei 1-ulp-Abweichung, wenn alle Werte am Rand lagen (Energie = Vielfaches von floor/cap). Reviewer-major 2: INV-3-Grenze mit min-Optionen nicht durch Test/Offene Punkte abgesichert. Eigener Befund: seed 42 hing > 10 min (schwache Relaxation).
-- Lesson: solver-precision → CLAUDE.md „Gelernte Regeln“ + Regressionstests für Werte genau auf den Schranken.
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-05).

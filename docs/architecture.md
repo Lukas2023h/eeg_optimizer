@@ -217,6 +217,12 @@ def solve_block(inputs: OptimizationInputs, objective: Objective, time_limit_s: 
 # (CBC-Toleranz, Fehler < 1e-6 €). Unbekanntes Ziel → UnsupportedModelError.
 # CBC-Status ≠ Optimal → BlockSolveError (Runner fängt). CBC liefert ~8 signifikante Stellen, daher
 # reskaliert solve_block jede modulierende Aufgabe auf die exakte Energie (> 1e-4 kWh → BlockSolveError).
+# CBC 2.10.3 (F5-09): Die MIP-Vorverarbeitung (Cgl) meldet auf manchen Blöcken mit Programm-Binärvariablen
+# „Optimal“, liefert aber modulierende Werte weit über der Obergrenze (Beispielgemeinschaft 2023, min_cost:
+# E-Auto 8 kWh in einem Intervall bei 2,75 kWh Grenze). solve_block prüft daher alle modulierenden
+# Variablen auf [0, cap] ± BOUND_TOLERANCE_KWH (1e-6, bound_violations) und löst bei Verstoß dasselbe
+# Modell einmal mit „preprocess off“ (run_cbc(..., preprocess=False)); weiterhin Verstoß → BlockSolveError.
+# Vorverarbeitung bleibt standardmäßig an (beschleunigt Blöcke mit min-Optionen, INV-5).
 # inflexible_total(inputs) -> Summe der unflexiblen Lasten je Intervall (auch von greedy genutzt).
 
 # optimize/greedy.py (F5-06, Vergleich und Rückfall, Details §5 „Greedy“)

@@ -1,4 +1,7 @@
-"""Property tests for the block LP (F5-02): INV-2 (device constraints) and INV-3 (never worse)."""
+"""Property tests for the block (MI)LP: INV-2 (device constraints) and INV-3 (never worse).
+
+F5-02: modulating devices only; F5-03: mixed with program devices (start binaries).
+"""
 
 from __future__ import annotations
 
@@ -11,7 +14,7 @@ from hypothesis import HealthCheck, event, given, settings
 from hypothesis import strategies as st
 
 from eeg_optimizer.config import TariffConfig
-from eeg_optimizer.devices import Device, parse_device, tasks
+from eeg_optimizer.devices import Device, ProgramDevice, parse_device, tasks
 from eeg_optimizer.optimize.milp import solve_block
 from eeg_optimizer.optimize.objectives import (
     OptimizationInputs,
@@ -75,7 +78,37 @@ def modulating_devices(draw: st.DrawFn, device_id: str) -> Device:
 
 
 @st.composite
-def block_inputs(draw: st.DrawFn) -> OptimizationInputs:
+def program_devices(draw: st.DrawFn, device_id: str) -> Device:
+    """Random program devices that pass the F4-01 validation and fit on the spring DST day."""
+    start = draw(grid_times)
+    window_slots = draw(st.integers(5, SLOTS_PER_DAY - 1))
+    end_minutes = (start.hour * 60 + start.minute + window_slots * 15) % 1440
+    end = time(end_minutes // 60, end_minutes % 60)
+    offset = draw(st.integers(0, window_slots - 5))
+    minutes = (start.hour * 60 + start.minute + offset * 15) % 1440
+    baseline = time(minutes // 60, minutes % 60)
+    run_slots = draw(st.integers(1, window_slots - offset - 4))
+    raw: dict[str, Any] = {
+        "id": device_id,
+        "kind": "program",
+        "power_kw": draw(st.floats(0.5, 5.0)),
+        "duration_min": run_slots * 15,
+        "window": {"start": f"{start:%H:%M}", "end": f"{end:%H:%M}"},
+        "baseline_start": f"{baseline:%H:%M}",
+    }
+    return parse_device(raw, device_id)
+
+
+@st.composite
+def mixed_devices(draw: st.DrawFn, device_id: str) -> Device:
+    """Program or modulating device with equal chance."""
+    if draw(st.booleans()):
+        return draw(program_devices(device_id))
+    return draw(modulating_devices(device_id))
+
+
+@st.composite
+def block_inputs(draw: st.DrawFn, *, with_programs: bool = False) -> OptimizationInputs:
     first = draw(first_days)
     n_days = draw(st.integers(1, 2))
     index = _index(first, n_days)
@@ -92,7 +125,8 @@ def block_inputs(draw: st.DrawFn) -> OptimizationInputs:
             {"load_kwh": level + 0.2 * np.sin(np.arange(n) / 7.0) ** 2}, index=index
         )
         n_devices = draw(st.integers(0, 2))
-        devices[household_id] = tuple(draw(modulating_devices(f"d{k}")) for k in range(n_devices))
+        kind = mixed_devices if with_programs else modulating_devices
+        devices[household_id] = tuple(draw(kind(f"d{k}")) for k in range(n_devices))
     return OptimizationInputs(
         pv=pd.DataFrame({"pv_kwh": pv}, index=index),
         loads=loads,
@@ -141,6 +175,47 @@ def test_inv2_energy_window_and_power_are_kept(inputs: OptimizationInputs) -> No
 @_SETTINGS
 @given(block_inputs())
 def test_inv3_never_worse_than_the_baseline(inputs: OptimizationInputs) -> None:
+    schedule = solve_block(inputs, "max_shared")
+
+    optimized = evaluate(schedule, inputs, "max_shared")
+    baseline = evaluate(baseline_device_schedule(inputs), inputs, "max_shared")
+    assert optimized >= baseline - TOL
+
+
+@_SETTINGS
+@given(block_inputs(with_programs=True))
+def test_inv2_program_runs_once_in_one_piece_inside_the_window(
+    inputs: OptimizationInputs,
+) -> None:
+    schedule = solve_block(inputs, "max_shared")
+
+    index = inputs.index
+    for household_id, devices in inputs.devices.items():
+        for device in devices:
+            values = schedule[household_id][device.id].to_numpy()
+            cap = kw_to_kwh(KW(device.power_kw), INTERVAL)
+            inside = np.zeros(len(index), dtype=bool)
+            for task in tasks(device, index):
+                in_window = (index >= task.window_start) & (index < task.window_end)
+                inside |= in_window
+                part = values[in_window]
+                if isinstance(device, ProgramDevice):
+                    event("program task")
+                    # Exactly one start: one contiguous run of duration/15 intervals at cap.
+                    running = np.flatnonzero(part > 0.0)
+                    n_run = device.duration_min // 15
+                    assert len(running) == n_run
+                    assert running[-1] - running[0] == n_run - 1
+                    assert np.all(part[running] == cap)
+                assert abs(part.sum() - task.energy_kwh) <= TOL
+            assert values.min() >= 0.0
+            assert values.max() <= cap + 1e-9
+            assert np.abs(values[~inside]).max(initial=0.0) <= TOL
+
+
+@_SETTINGS
+@given(block_inputs(with_programs=True))
+def test_inv3_mixed_devices_never_worse_than_the_baseline(inputs: OptimizationInputs) -> None:
     schedule = solve_block(inputs, "max_shared")
 
     optimized = evaluate(schedule, inputs, "max_shared")

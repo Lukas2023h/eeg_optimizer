@@ -429,7 +429,7 @@
       "Handbeispiel: Programm 90 min wird in den Überschuss gelegt",
       "INV-3 Property-Test mit gemischten Geräten"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5-04",

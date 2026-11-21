@@ -183,17 +183,22 @@ def evaluate(schedule: DeviceSchedule, inputs: OptimizationInputs, objective: Ob
 # ObjectiveInputError. Hilfen: schedule_loads (Last + Geräte), score_balance(balance, inputs, objective),
 # baseline_device_schedule(inputs). Baseline und Optimierung werden mit derselben Funktion bewertet (INV-3).
 
-# optimize/milp.py (F5-02)
+# optimize/milp.py (F5-02, F5-03)
 def build_block_model(inputs: OptimizationInputs, objective: Objective) -> BlockModel
 def solve_block(inputs: OptimizationInputs, objective: Objective, time_limit_s: float | None = None)
     -> dict[household_id, dict[device_id, pd.Series]]   # DeviceSchedule, device_kwh, für evaluate
 # inputs bereits auf den Block geschnitten. Aufgaben = devices.tasks(device, block_index) (gleiche Menge
 # wie Baseline). BlockModel: problem (pulp.LpProblem), index, device_vars[hh][dev] = DeviceVars(row je
-# Intervall: LpVariable oder 0.0 außerhalb der Fenster, cap_kwh, spans: TaskSpan(start, stop, energy_kwh)).
-# Ohne min_run_min/min_power_kw nur stetige Variablen (LP). F5-02 kann nur modulating + max_shared;
-# program (F5-03), min-Optionen (F5-04), min_cost/min_co2 (F5-05) → UnsupportedModelError (nie ignoriert).
+# Intervall: LpVariable (modulating) bzw. LpAffineExpression der Startbinärvariablen (program) oder 0.0
+# außerhalb der Fenster, cap_kwh, spans: TaskSpan(start, stop, energy_kwh, start_vars, run_intervals)).
+# program (F5-03): je Aufgabe eine Binärvariable pro Start s mit Lauf im Fenster (start_vars[i] = Start
+# span.start + i), Σ = 1; x_t = cap · Σ_{s ≤ t < s+n} y_s. Passt der Lauf nicht ins Fenster (Frühjahrs-
+# DST) → BlockSolveError schon beim Aufbau. Ergebnis aus dem gewählten Start rekonstruiert (exakt cap bzw. 0;
+# nicht genau eine Binärvariable = 1 → BlockSolveError).
+# Modulating ohne min_run_min/min_power_kw nur stetige Variablen (LP). min-Optionen (F5-04),
+# min_cost/min_co2 (F5-05) → UnsupportedModelError (nie ignoriert).
 # CBC-Status ≠ Optimal → BlockSolveError (Runner fängt). CBC liefert ~8 signifikante Stellen, daher
-# reskaliert solve_block jede Aufgabe auf die exakte Energie (Abweichung > 1e-4 kWh → BlockSolveError).
+# reskaliert solve_block jede modulierende Aufgabe auf die exakte Energie (> 1e-4 kWh → BlockSolveError).
 
 # optimize/runner.py
 def optimize(inputs: OptimizationInputs, objective: Objective, solver: Literal["milp","greedy"]) -> Schedule

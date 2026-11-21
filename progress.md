@@ -63,10 +63,19 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 
 - F4-03/F5/F5-07: `devices.tasks(device, index)` liefert die Tagesaufgaben (`Task` mit tz-aware `window_start`/`window_end`/`baseline_start`, `day` = Tag des Fensterbeginns). Nur Aufgaben mit ganzem Fenster im Index zählen (2023: E-Auto 18–07 → 364 Aufgaben); der Optimierer muss dieselbe Menge verwenden, sonst ist der Vergleich unfair. `devices.baseline_schedule` → `device_kwh`, `devices.baseline_loads(loads, devices_for(cfg))` = Baseline-Last; `analysis.analyze` nutzt sie schon. Die Optimierung braucht die **unflexiblen** `CommunityInputs.loads` plus Geräte separat. (F4-02)
 - F5-02..F5-07: `optimize.objectives.evaluate(schedule, inputs, objective)` bewertet einen `DeviceSchedule` (hh → Geräte-ID → Series `device_kwh`), höher = besser (+kWh shared, −€ Gemeinschaftskosten mit Spot-Tarif, −kg CO₂). `OptimizationInputs.from_community(inputs, cfg)` bündelt Zeitreihen, Tarife und `devices_for`. Der Fahrplan muss **genau** die Geräte aus `inputs.devices` enthalten. Für Blöcke die Frames vorher auf den Block-Index schneiden (eine `restrict`-Hilfe gibt es noch nicht). Das MILP muss dieselben Koeffizienten wie `economics.community_costs`/`community_emissions` verwenden. `baseline_device_schedule(inputs)` liefert die Baseline. (F5-01)
-- F5-03/F5-04/F5-05/F5-07: `optimize.milp.build_block_model`/`solve_block(inputs, objective, time_limit_s)` (Block-LP, `inputs` vorher auf den Block schneiden). Erweiterungen in `build_block_model`: `_check_supported` lehnt program, min-Optionen und min_cost/min_co2 bisher mit `UnsupportedModelError` ab, dort jeweils freischalten. `DeviceVars.row` hat je Intervall eine Variable bzw. `0.0`, `spans` die Aufgaben. CBC liefert nur ~8 signifikante Stellen: `_exact_energy` reskaliert je Aufgabe (bei Programmen mit Binärvariablen anders lösen, dort ist das Profil fix). Runner fängt `BlockSolveError` (Status ≠ Optimal, auch Zeitlimit mit nur zulässiger Lösung). Leerer Block-Index wird nicht abgefangen (IndexError). (F5-02)
+- F5-03/F5-04/F5-05/F5-07: `optimize.milp.build_block_model`/`solve_block(inputs, objective, time_limit_s)` (Block-LP, `inputs` vorher auf den Block schneiden). Erweiterungen in `build_block_model`: `_check_supported` lehnt min-Optionen und min_cost/min_co2 bisher mit `UnsupportedModelError` ab, dort jeweils freischalten. `DeviceVars.row` hat je Intervall eine Variable (modulating), einen Ausdruck der Startbinärvariablen (program) bzw. `0.0`; `spans` die Aufgaben (bei Programmen mit `start_vars`/`run_intervals`). CBC liefert nur ~8 signifikante Stellen: `_exact_energy` reskaliert modulierende Aufgaben, Programme werden aus dem gewählten Start rekonstruiert. Runner fängt `BlockSolveError` (Status ≠ Optimal, auch Zeitlimit mit nur zulässiger Lösung) — **auch schon beim Aufbau** (`build_block_model`), wenn ein Programm am Frühjahrs-DST-Tag nicht ins Fenster passt; dieser Rückfall muss gezählt und ausgewiesen werden. Leerer Block-Index wird nicht abgefangen (IndexError). (F5-02, F5-03)
+- F5-04: min-Optionen für modulating per Binärvariablen ergänzen; Programme sind bereits ein MILP (`problem.isMIP()`), der Test `test_model_without_min_options_has_no_binary_variables` gilt nur für reine modulating-Blöcke. (F5-03)
 - F5-07 (Rückfall auf Baseline): Der Baseline-Lauf hält `min_power_kw` im letzten Teilintervall und `min_run_min` nicht unbedingt ein. Fällt ein Block auf die Baseline zurück, ist INV-2 dafür nicht garantiert; Runner/Greedy entsprechend prüfen. (F4-02)
 
 ---
+
+## 2026-11-21 – F5-03 – MILP: Programm-Geräte (Startzeit-Binärvariablen)
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `optimize/milp.py`: `_add_program_task` (eine Binärvariable je möglichem Start, Σ = 1, Energie als Ausdruck `cap · Σ y`), `_add_modulating_task` herausgelöst, `_chosen_start` (genau ein Start = 1, sonst `BlockSolveError`), `TaskSpan.start_vars`/`run_intervals`, `BINARY_TOLERANCE`. Programm passt nicht ins Fenster (Frühjahrs-DST) → `BlockSolveError` beim Aufbau. Tests: `tests/unit/test_milp_program.py` (Handbeispiel 90 min in den Überschuss 11:00–12:30, exaktes Profil, Binärstruktur, Fensterende, über Mitternacht, beide DST-Tage, gemischte Geräte, `_chosen_start`-Fehler), Property-Tests INV-2 (genau ein Lauf am Stück im Fenster) und INV-3 mit gemischten Geräten. `test_program_devices_are_rejected_not_ignored` → `..._planned_not_ignored` (Verhalten absichtlich geändert). architecture.md §4 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor): Runner muss den Aufbau-Fehler mitfangen (Offene Punkte). Programmenergie = `duration/15 · kw_to_kwh(power)` wie Baseline, nicht `task.energy_kwh` direkt (Abweichung nur Float-Rundung).
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-04).
 
 ## 2026-11-21 – F5-02 – MILP für einen Block: modulierende Lasten (LP)
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
@@ -100,11 +109,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Offene Probleme (nit): Die Geräteblöcke sind in beiden YAMLs dupliziert (durch Test abgesichert). Wasch- und Spülmaschine laufen vereinfacht einmal täglich.
 - Fehlertypen: –
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F4-04 oder F5-01).
-
-## 2026-11-19 – F4-02 – Baseline-Fahrplan flexibler Lasten
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: In `devices.py` neu `Task`, `tasks`, `baseline_schedule` (volle Leistung ab `baseline_start`, Rest im letzten Intervall, Programm feste Dauer; nicht existente Uhrzeit → 03:00, doppelte → erstes Auftreten; echte Intervalle zählen; Lauf über Fensterende → `BaselineScheduleError`) und `baseline_loads`. `analysis.analyze` rechnet die Baseline-Bilanz jetzt mit Gerätelasten. Tests: `tests/unit/test_baseline_schedule.py` (Werte, Mitternacht, beide DST-Tage, ganzes Jahr, Lasten addiert, Ist-Analyse mit E-Auto) und `tests/property/test_baseline_schedule.py` (Tagesenergie, Leistungsgrenze, nur im Fenster, Aufgaben disjunkt, über DST-Tage). architecture.md §4 ergänzt.
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit): Randaufgaben (31.12. abends) fallen bewusst weg. `_checked_index` baut einen Wegwerf-DataFrame für `validate_frame`; `_run_energies` ist als bare `np.ndarray` typisiert.
-- Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F4-03).

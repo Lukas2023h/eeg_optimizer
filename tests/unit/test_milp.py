@@ -154,16 +154,18 @@ def test_unsupported_objective_is_rejected() -> None:
         solve_block(inputs, "min_cost")
 
 
-def test_program_devices_are_rejected_not_ignored() -> None:
+def test_program_devices_are_planned_not_ignored() -> None:
+    # Since F5-03 programs are part of the model (F5-02 rejected them); see test_milp_program.py.
     program = ProgramDevice(
         id="wm",
         power_kw=KW(2.0),
-        duration_min=90,
+        duration_min=60,
         window=TimeWindow(time(8, 0), time(20, 0)),
         baseline_start=time(8, 0),
     )
-    with pytest.raises(UnsupportedModelError, match="wm"):
-        solve_block(_inputs(_surplus_12_to_13(), (program,)), "max_shared")
+    wm = solve_block(_inputs(_surplus_12_to_13(), (program,)), "max_shared")["a"]["wm"]
+    np.testing.assert_allclose(wm.iloc[48:52].to_numpy(), 0.5)
+    assert wm.sum() == pytest.approx(2.0)
 
 
 @pytest.mark.parametrize("options", [{"min_run_min": 60}, {"min_power_kw": 1.0}])

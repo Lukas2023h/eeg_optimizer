@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-21 – F5-03 – MILP: Programm-Geräte (Startzeit-Binärvariablen)
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `optimize/milp.py`: `_add_program_task` (eine Binärvariable je möglichem Start, Σ = 1, Energie als Ausdruck `cap · Σ y`), `_add_modulating_task` herausgelöst, `_chosen_start` (genau ein Start = 1, sonst `BlockSolveError`), `TaskSpan.start_vars`/`run_intervals`, `BINARY_TOLERANCE`. Programm passt nicht ins Fenster (Frühjahrs-DST) → `BlockSolveError` beim Aufbau. Tests: `tests/unit/test_milp_program.py` (Handbeispiel 90 min in den Überschuss 11:00–12:30, exaktes Profil, Binärstruktur, Fensterende, über Mitternacht, beide DST-Tage, gemischte Geräte, `_chosen_start`-Fehler), Property-Tests INV-2 (genau ein Lauf am Stück im Fenster) und INV-3 mit gemischten Geräten. `test_program_devices_are_rejected_not_ignored` → `..._planned_not_ignored` (Verhalten absichtlich geändert). architecture.md §4 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor): Runner muss den Aufbau-Fehler mitfangen (Offene Punkte). Programmenergie = `duration/15 · kw_to_kwh(power)` wie Baseline, nicht `task.energy_kwh` direkt (Abweichung nur Float-Rundung).
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-04).
+
 ## 2026-11-21 – F5-02 – MILP für einen Block: modulierende Lasten (LP)
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: Neues Modul `src/eeg_optimizer/optimize/milp.py`: `build_block_model` (PuLP-LP: Gerätevariablen nur in Aufgabenfenstern aus `devices.tasks`, Energie je Aufgabe, Leistungsgrenze, `shared ≤ pv`, `shared ≤ Last + Geräte`, max Σ shared), `solve_block` (CBC, Status-/sol_status-Prüfung, Energie-Reparatur der CBC-Rundung), `BlockModel`/`DeviceVars`/`TaskSpan`, `UnsupportedModelError`, `BlockSolveError`. Tests: `tests/unit/test_milp.py` (Handbeispiel 12–13 Uhr, Leistungsgrenze, kein Binär, Variablen nur im Fenster, Reparatur, Ablehnungen) und `tests/property/test_milp.py` (INV-2, INV-3 inkl. DST-Tage, 1–2 Tage, mehrere Haushalte). architecture.md §4 ergänzt.

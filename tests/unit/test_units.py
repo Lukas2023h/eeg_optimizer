@@ -1,6 +1,7 @@
 """Tests for unit conversion and frame validation (F1-01, INV-4)."""
 
 from datetime import timedelta
+from typing import Literal, get_args
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,7 @@ from eeg_optimizer.units import (
     TIMEZONE,
     FrameValidationError,
     KWh,
+    _is_aligned_gapless_grid,
     ct_to_eur,
     g_to_kg_co2,
     kw_to_kwh,
@@ -170,6 +172,45 @@ def test_rejects_unsorted_index() -> None:
     df = _frame().iloc[::-1]
     with pytest.raises(FrameValidationError, match="not sorted"):
         validate_frame(df)
+
+
+TimeUnit = Literal["s", "ms", "us", "ns"]
+TIME_UNITS: tuple[TimeUnit, ...] = get_args(TimeUnit)
+
+
+@pytest.mark.parametrize("unit", TIME_UNITS)
+def test_fast_grid_check_holds_for_every_time_unit(unit: TimeUnit) -> None:
+    # F5-08: the integer fast path must convert the step into the unit of the index
+    # (Timedelta.value is always ns); otherwise every frame takes the slow pandas path.
+    index = pd.DatetimeIndex(_frame(periods=200).index).as_unit(unit)
+    assert _is_aligned_gapless_grid(index, INTERVAL)
+    assert _is_aligned_gapless_grid(index[:1], INTERVAL)
+    validate_frame(pd.DataFrame({"pv_kwh": np.zeros(len(index))}, index=index))
+
+
+@pytest.mark.parametrize("unit", TIME_UNITS)
+def test_fast_grid_check_rejects_gap_and_misalignment_in_every_time_unit(unit: TimeUnit) -> None:
+    index = pd.DatetimeIndex(_frame(periods=8).index).as_unit(unit)
+    gap = index.delete(3)
+    shifted = index + pd.Timedelta(minutes=5)
+    single_shifted = shifted[:1]
+    for bad in (gap, shifted, single_shifted, index[::-1]):
+        assert not _is_aligned_gapless_grid(bad, INTERVAL)
+    with pytest.raises(FrameValidationError, match="missing intervals: 1"):
+        validate_frame(pd.DataFrame({"pv_kwh": np.zeros(len(gap))}, index=gap))
+    with pytest.raises(FrameValidationError, match="not aligned"):
+        validate_frame(pd.DataFrame({"pv_kwh": [0.0]}, index=single_shifted))
+
+
+def test_fast_grid_check_uses_the_requested_interval() -> None:
+    hourly = pd.date_range("2023-06-01", periods=5, freq="1h", tz=TIMEZONE)
+    assert _is_aligned_gapless_grid(hourly, timedelta(hours=1))
+    assert not _is_aligned_gapless_grid(hourly, INTERVAL)
+
+
+def test_fast_grid_check_declines_interval_finer_than_index_unit() -> None:
+    seconds = pd.date_range("2023-06-01", periods=3, freq="1s", tz=TIMEZONE).as_unit("s")
+    assert not _is_aligned_gapless_grid(seconds, timedelta(milliseconds=500))
 
 
 def test_rejects_empty_frame() -> None:

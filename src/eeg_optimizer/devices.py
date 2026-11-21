@@ -48,6 +48,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from functools import lru_cache
 from typing import Any, Final, Literal
 
 import numpy as np
@@ -157,6 +158,10 @@ Device = ModulatingDevice | ProgramDevice
 # --------------------------------------------------------------------- baseline (F4-02)
 
 
+_LOCAL_INSTANT_CACHE: Final = 16_384
+"""Entries of the ``_local_instant`` cache: ~2 years x 366 days x a few distinct times of day."""
+
+
 class BaselineScheduleError(ValueError):
     """The baseline of a device cannot be built (e.g. energy does not fit on a DST day)."""
 
@@ -177,7 +182,10 @@ class Task:
     energy_kwh: KWh
 
 
+@lru_cache(maxsize=_LOCAL_INSTANT_CACHE)
 def _local_instant(day: date, t: time) -> pd.Timestamp:
+    # Cached (F5-08): the runner asks for the same few (day, time) pairs ~500 000 times a
+    # year and tz_localize costs ~20 µs; the result is an immutable Timestamp.
     # Nonexistent (spring) -> shifted to 03:00; ambiguous (autumn) -> first occurrence.
     naive = pd.Timestamp(datetime.combine(day, t))
     return naive.tz_localize(TIMEZONE, ambiguous=True, nonexistent="shift_forward")

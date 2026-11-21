@@ -511,7 +511,7 @@
       "fallback_ratio == 0 im Performance-Szenario",
       "Gemessene Laufzeit in progress.md notiert"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5-09",

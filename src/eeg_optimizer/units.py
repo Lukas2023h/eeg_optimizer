@@ -155,6 +155,21 @@ def validate_frame(df: pd.DataFrame, interval: timedelta = INTERVAL) -> None:
     _validate_columns(df)
 
 
+def _is_aligned_gapless_grid(index: pd.DatetimeIndex, interval: timedelta) -> bool:
+    """Fast check (F5-08): every step is exactly ``interval`` and the first stamp is aligned.
+
+    Works on the integer epoch values (UTC, in the index's own unit), a few µs per block
+    instead of ~0.5 ms of pandas arithmetic. Equal steps imply sorted, unique and, with an
+    aligned first stamp, every stamp aligned. ``False`` sends the caller to the detailed checks.
+    """
+    ticks = index.asi8
+    # Timedelta.value is always in ns; the index may be in s/ms/us/ns.
+    step = int(np.timedelta64(interval).astype(f"timedelta64[{index.unit}]").astype(np.int64))
+    if step <= 0:  # interval finer than the index unit (e.g. 500 ms on seconds): slow path
+        return False
+    return bool(ticks[0] % step == 0) and bool(np.all(np.diff(ticks) == step))
+
+
 def _validate_index(index: pd.Index, interval: timedelta) -> None:
     if not isinstance(index, pd.DatetimeIndex):
         raise FrameValidationError(f"index must be a DatetimeIndex, got {type(index).__name__}")
@@ -166,6 +181,9 @@ def _validate_index(index: pd.Index, interval: timedelta) -> None:
         raise FrameValidationError(f"index timezone is {index.tz}; expected {TIMEZONE}")
     if len(index) == 0:
         raise FrameValidationError("frame is empty")
+    if _is_aligned_gapless_grid(index, interval):
+        return
+    # Slow path: only reached for invalid indexes, finds the first violation for the message.
     if index.has_duplicates:
         dup = index[index.duplicated()][0]
         raise FrameValidationError(f"duplicate timestamp {dup.isoformat()}")

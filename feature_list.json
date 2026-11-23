@@ -542,7 +542,7 @@
       "E2E: beide Hinweistexte sichtbar neben dem Ergebnis",
       "E2E: alle drei Ziele und beide Verfahren auswählbar, jeweils ohne Exception"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F6-01",

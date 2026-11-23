@@ -70,8 +70,17 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - F5-09: Mit min-Optionen kann die Baseline sie verletzen und mehr teilen; dann fällt der Block zurück (MILP und Greedy schlechter als Baseline) und INV-2 gilt für diesen Block nicht, aber er wird ausgewiesen. Beispielkonfigurationen haben keine min-Optionen. Bei min_cost mit sehr negativen Spotpreisen Big-M-Binärvariablen (mehr MIP-Anteil). (F4-02, F5-04, F5-05)
 - CBC 2.10.3: Die MIP-Vorverarbeitung liefert auf manchen Blöcken Werte über der Obergrenze trotz „Optimal“. `solve_block` löst dann ohne Vorverarbeitung neu (architecture §4). Bei einem PuLP/CBC-Upgrade schlägt `test_regression_example_community_january_min_cost_has_no_fallback` absichtlich fehl (`False in calls`); dann prüfen, ob der Workaround noch nötig ist. Standardszenario-Tests (`tests/unit/test_standard_scenario.py`, 3 Jahresläufe ~48 s) laufen bewusst in check.sh. (F5-09)
 - MILP: Leerer Block-Index wird in `solve_block` nicht abgefangen (IndexError); der Runner erzeugt keine leeren Blöcke. (F5-02)
+- F6-02/F7-03: Die Seite `/optimierung` legt den letzten Lauf als `optimize.report.OptimizationRun` (`config`, `schedule`) in `st.session_state[report.SESSION_RUN_KEY]` ab. Die Vergleichsseite prüft `run.config == aktive Konfiguration` (sonst Hinweis „neu rechnen“) und holt die Zeitreihen wieder über `build_inputs` (gecacht). Hinweistexte `report.UPPER_BOUND_NOTE`/`BLOCK_NOTE`. Ein Jahreslauf MILP (Offline-Beispiel) dauert ca. 15 s. E2E: Auf Text `^Rückfall-Blöcke: \d+ von \d+` warten (Timeout 180 s). `_number` (deutsches Zahlenformat) gibt es jetzt doppelt in `analysis.py` und `optimization.py`; F6-02 sollte es in ein gemeinsames Modul ziehen. (F5-10)
 
 ---
+
+## 2026-11-23 – F5-10 – UI: Optimierung starten
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK, 1 minor behoben: Fortschrittsbalken bei Fehler per `finally` entfernt)
+- Gemacht: Neue Seite `app/pages/optimization.py` (`/optimierung`): Auswahl von Ziel (Selectbox „Ziel“) und Verfahren (Radio „Verfahren“), Button „Optimieren“, Fortschrittsbalken je Tagesblock, Ergebnis mit Ist/optimiert/Laufzeit, „Rückfall-Blöcke: n von m Tagesblöcken“ plus Tabelle bei Rückfällen, Box mit beiden Hinweisen. Neues Modul `optimize/report.py` (Labels, Hinweise, `OptimizationRun`, `score_summary` für kWh/€/kg CO₂). Tests: `tests/unit/test_optimization_report.py`, `tests/e2e/test_optimization_page.py` (max_shared MILP inkl. Fortschritt und Hinweisen, alle 3 Ziele × 2 Verfahren ohne Exception und ohne Rückfall). check.sh --e2e grün.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): `_number` ohne Unit-Test und doppelt (siehe Offene Punkte). Bei `improvement < 0` (nur Solver-Rauschen) stünde „-x besser“. E2E-Laufzeit der neuen Tests ca. 110 s.
+- Fehlertypen: –
+- Nächster Schritt: `scripts/next_feature.sh`.
 
 ## 2026-11-21 – F5-09 – Standardszenario ohne Rückfall
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK, 2 nits behoben)
@@ -107,13 +116,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Fehlertypen: solver-precision, spec-abweichung
 - Anmerkung: Reviewer-major: Untergrenze `floor ≤ E/k` ohne Toleranz (0,3/3 < 0,1) → gültiges k verworfen; behoben mit `BOUND_NOISE_KWH` + Tests genau auf floor und cap. Abweichung: Sortierung nach Schlupf statt Fensterlänge (architecture §5 nachgezogen, Begründungstest).
 - Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-07).
-
-## 2026-11-21 – F5-05 – MILP: Ziele Kosten und CO2
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: `optimize/milp.py`: `objective_weights`/`ObjectiveWeights` (Ziel = Σ shared·w_s − Σ load·w_l + Σ pv·w_pv inkl. Konstante, also exakt `evaluate`), `_force_shared_to_minimum` (bei negativem Wert eines geteilten kWh: shared = min(pv, load) als Konstante bzw. Binärvariable), `SHARED_BINARY_MIN_KWH`. `economics.py`: Koeffizienten öffentlich (`energy_price_ct_per_kwh`, `import_price_ct_per_kwh`, `community_shared_price_ct_per_kwh`, `co2_intensity_g_per_kwh`), von `community_costs`/`costs` genutzt. Tests: `tests/unit/test_milp_objectives.py` (Handbeispiele billigstes/CO₂-ärmstes Intervall, Programm, PV vs. billiger Bezug, negativer Spotpreis, Gewichte, Fehler), `tests/unit/test_zz_repro_f505.py` (Regression winzige Werte), Property-Tests INV-3 für beide Ziele und „Modellwert = evaluate“ für alle Ziele (zufällige, auch negative Spotpreise). `test_unsupported_objective_is_rejected` prüft jetzt einen unbekannten Namen (min_cost ist absichtlich unterstützt). architecture.md §4/§5 ergänzt.
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor): Dateiname `test_zz_repro_f505.py` ist ein Scratch-Name (Umbenennen headless nicht erlaubt), bei Gelegenheit in `test_milp_negative_shared.py` umbenennen. PV < 1e-6 kWh ohne Binärvariable (siehe Offene Punkte).
-- Fehlertypen: solver-precision, spec-abweichung
-- Anmerkung: Eigener Bug (Property-Test): Big-M-Binärvariable mit PV 1e-12 neben Last 1e-9 → CBC „Infeasible“. Abweichung: architecture §5 sah Hilfsvariable `import ≥ load − shared` vor; das ist bei negativem Spotpreis nicht exakt, daher Elimination + erzwungenes Minimum.
-- Lesson: spec-abweichung → CLAUDE.md „Gelernte Regeln“ (Skill-Schritt als Vorschlag unter „Für den planner“, Skills headless gesperrt).
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-06).

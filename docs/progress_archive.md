@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-11-21 – F5-05 – MILP: Ziele Kosten und CO2
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: `optimize/milp.py`: `objective_weights`/`ObjectiveWeights` (Ziel = Σ shared·w_s − Σ load·w_l + Σ pv·w_pv inkl. Konstante, also exakt `evaluate`), `_force_shared_to_minimum` (bei negativem Wert eines geteilten kWh: shared = min(pv, load) als Konstante bzw. Binärvariable), `SHARED_BINARY_MIN_KWH`. `economics.py`: Koeffizienten öffentlich (`energy_price_ct_per_kwh`, `import_price_ct_per_kwh`, `community_shared_price_ct_per_kwh`, `co2_intensity_g_per_kwh`), von `community_costs`/`costs` genutzt. Tests: `tests/unit/test_milp_objectives.py` (Handbeispiele billigstes/CO₂-ärmstes Intervall, Programm, PV vs. billiger Bezug, negativer Spotpreis, Gewichte, Fehler), `tests/unit/test_zz_repro_f505.py` (Regression winzige Werte), Property-Tests INV-3 für beide Ziele und „Modellwert = evaluate“ für alle Ziele (zufällige, auch negative Spotpreise). `test_unsupported_objective_is_rejected` prüft jetzt einen unbekannten Namen (min_cost ist absichtlich unterstützt). architecture.md §4/§5 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor): Dateiname `test_zz_repro_f505.py` ist ein Scratch-Name (Umbenennen headless nicht erlaubt), bei Gelegenheit in `test_milp_negative_shared.py` umbenennen. PV < 1e-6 kWh ohne Binärvariable (siehe Offene Punkte).
+- Fehlertypen: solver-precision, spec-abweichung
+- Anmerkung: Eigener Bug (Property-Test): Big-M-Binärvariable mit PV 1e-12 neben Last 1e-9 → CBC „Infeasible“. Abweichung: architecture §5 sah Hilfsvariable `import ≥ load − shared` vor; das ist bei negativem Spotpreis nicht exakt, daher Elimination + erzwungenes Minimum.
+- Lesson: spec-abweichung → CLAUDE.md „Gelernte Regeln“ (Skill-Schritt als Vorschlag unter „Für den planner“, Skills headless gesperrt).
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-06).
+
 ## 2026-11-21 – F5-04 – MILP: Mindestlaufzeit und Mindestleistung
 - Ergebnis: PASS (Evaluator PASS, Reviewer: 2 major behoben)
 - Gemacht: `optimize/milp.py`: bei `min_power_kw`/`min_run_min` Binärvariable `on` je Fensterintervall (`floor·on ≤ x ≤ cap·on`, floor = Mindestleistung bzw. bei nur min_run 1 % cap), Kardinalitätsschranken `ceil(E/cap) ≤ Σ on ≤ floor(E/floor)` (machte harte Fälle von > 20 s auf < 1 s), `_add_min_run` (Startindikatoren, keine späten Starts, Frühjahrs-DST → `BlockSolveError`), Reparatur der CBC-Rundung in `[floor, cap]` bzw. exakt 0, neuer Parameter `solve_block(..., mip_gap=None)`. Tests: `tests/unit/test_milp_min_options.py`, Property-Test `test_inv2_min_power_and_min_run_are_kept` (mit `mip_gap=1e-2`, Begründung im Test). `test_min_options_are_rejected_not_ignored` → `..._planned_not_ignored` (Verhalten absichtlich geändert). architecture.md §4 ergänzt.

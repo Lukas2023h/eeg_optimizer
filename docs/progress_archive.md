@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-11-21 – F5-07 – Runner: Tageszerlegung, Rückfall und Ausweis
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
+- Gemacht: Neues Modul `optimize/runner.py`: `optimize` (Block je Tag mit Fensterbeginn, Horizont bis spätestes Fensterende; feste Last = aktueller Fahrplan der anderen Tage im Block; Kette MILP → Greedy → Baseline mit Vergleich per `evaluate`, `SCORE_TOLERANCE` 1e-6), `Schedule`, `FallbackBlock`, `RunnerInputError`. `devices.tasks`/`baseline_schedule` mit `day=`, `OptimizationInputs.task_day` + `.tasks(device)`, genutzt von MILP und Greedy. Tests: `tests/unit/test_runner.py` (Mock-Rückfälle zählen, schlechteres Ergebnis verworfen, Toleranzgrenze, 18–07 über Blockgrenze, Folgetag-Fenster nicht doppelt, feste Last, greedy ohne MILP, Begründungstest spätere Baseline), `tests/unit/test_runner_year.py` (Jahr, 3 Haushalte, INV-2/INV-3), `tests/property/test_runner.py` (alle Ziele × beide Solver). architecture.md §4/§5 ergänzt.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Jahrestest ~12 s in check.sh (Akzeptanzkriterium, nicht slow markiert). Nachbarblock-Auswahl `blocks[i-1:i+2]` setzt Fenster ≤ 24 h ab Tagesbeginn voraus (Kommentar im Code, durch Gerätevalidierung gegeben). INV-3 übers Jahr nur bis Blöcke × 1e-6. Greedy kann im Jahr minimal besser sein als MILP (myopische Blöcke, Evaluator-Befund, kein Verstoß).
+- Fehlertypen: spec-abweichung
+- Anmerkung: Abweichung: architecture §5 sah nur frühere Blöcke als feste Last vor; das kann das Jahr unter die Baseline drücken (Begründungstest, Variante −1,2 statt −0,2 kg). Folge: keine Parallelisierung der Blöcke.
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-08, Laufzeit siehe Offene Punkte).
+
 ## 2026-11-21 – F5-06 – Greedy-Heuristik
 - Ergebnis: PASS (Evaluator PASS, Reviewer: 1 major behoben)
 - Gemacht: Neues Modul `optimize/greedy.py`: `solve_greedy` (Aufgaben nach Schlupf sortiert, Wert je kWh aus `milp.objective_weights`; modulierend: Wasserfüllung; Programm: bester Start; min-Optionen: ein Lauf mit k Intervallen à E/k, bestes (k, Start)), `GreedyScheduleError`, Toleranzen `ENERGY_NOISE_KWH`/`BOUND_NOISE_KWH`. `milp._inflexible_total` → öffentlich `inflexible_total`. Tests: `tests/unit/test_greedy.py` (Handbeispiele je Ziel/Geräteart, Reihenfolge nach Flexibilität, Werte genau auf floor/cap, Fehler), `tests/property/test_greedy.py` (INV-2 alle Gerätearten × Ziele, Greedy ≤ MILP inkl. min-Optionen), `tests/perf/test_greedy_perf.py` (slow, 15 Haushalte × 48 h: 0,04 s). architecture.md §4/§5 ergänzt (Flexibilität = Schlupf statt Fensterlänge).

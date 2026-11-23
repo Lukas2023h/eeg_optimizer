@@ -359,6 +359,7 @@ def test_optimal_model_value_is_the_score_of_the_schedule(
         # objective without value. Then every schedule must score 0 as well.
         event("empty objective")
         value = 0.0
+    value /= model.objective_scale  # LP in ct resp. g (milp.OBJECTIVE_SCALE)
     # CBC values carry ~8 significant digits (CLAUDE.md solver-precision), summed over
     # up to 192 intervals and several devices.
     assert value == pytest.approx(score, rel=1e-7, abs=1e-5)

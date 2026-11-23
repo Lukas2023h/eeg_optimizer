@@ -211,7 +211,9 @@ def solve_block(inputs: OptimizationInputs, objective: Objective, time_limit_s: 
 # Ziele (F5-05): objective_weights(inputs, objective) -> ObjectiveWeights(shared_weight, load_weight,
 # pv_weight) je Intervall; LP-Ziel = Σ shared·w_s − Σ load·w_l + Σ pv·w_pv (Konstante inklusive), also
 # genau evaluate(). Koeffizienten aus economics (import_price_ct_per_kwh, community_shared_price_ct_per_kwh,
-# co2_intensity_g_per_kwh): min_cost w_l = Bezugspreis (Spot + Aufschlag + Netzentgelt + Abgaben) in €,
+# co2_intensity_g_per_kwh; das LP-Ziel selbst steht in ct bzw. g: Faktor OBJECTIVE_SCALE = 100 bzw. 1000,
+# BlockModel.objective_scale, weil Gewichtsdifferenzen von ~1e-7 €/kWh bzw. kg/kWh in der
+# CBC-Dualtoleranz verschwinden): min_cost w_l = Bezugspreis (Spot + Aufschlag + Netzentgelt + Abgaben) in €,
 # w_pv = Einspeisetarif, w_s = Bezugspreis − (ermäßigtes Netzentgelt + Abgaben) − Einspeisetarif;
 # min_co2 w_s = w_l = Intensität in kg/kWh. Ist w_s < 0 (Spot < ca. −2 ct), erzwingt das Modell
 # shared = min(pv, load) (sonst teilte der Solver weniger als die Bilanz): Konstante Fälle ohne
@@ -267,6 +269,17 @@ def emissions(balance, allocation, co2: pd.DataFrame) -> EmissionResult
 # Vermiedene kg CO₂ = Differenz zweier Ergebnisse (F6-01). Fehler: EmissionInputError (Spalten, Index,
 # negative Intensität, Allocation passt nicht, Toleranz 1e-6 kWh).
 def compare(baseline: Scenario, optimized: Scenario) -> Comparison
+# compare.py (F6-01): scenario(inputs: OptimizationInputs, schedule: DeviceSchedule, strategy, tariff="fixed"|"spot")
+# -> Scenario (frozen: loads inkl. Geräte, balance, allocation, costs, emissions). compare_schedule(inputs,
+# schedule, strategy, tariff) vergleicht mit baseline_device_schedule auf denselben Inputs.
+# Comparison (frozen): baseline, optimized, table (Index household_id in Allocation-Reihenfolge + Zeile TOTAL_ROW
+# "total", Spalten COMPARISON_COLUMNS: shared_{baseline,optimized}_kwh, additional_shared_kwh,
+# cost_{baseline,optimized}_eur, saved_eur (Haushaltssicht; total = Summe der Haushalte),
+# emissions_{baseline,optimized}_kg_co2, avoided_kg_co2), additional_shared_kwh, saved_community_eur
+# (Gemeinschaftssicht), saved_households_eur, avoided_kg_co2; household(hh), total. Deltas positiv = besser.
+# total-Zeile für kWh/CO₂ = Gemeinschaftswert (Haushalte summieren sich dank INV-7 dazu, 1e-6).
+# Fester Tarif: saved_community_eur == additional_shared_kwh × value_shared (gleiche Geräteenergie).
+# ComparisonInputError: andere Haushalte, Index, PV (> PV_TOLERANCE_KWH 1e-9) oder Tarifart; Haushalt "total".
 
 # analysis.py (F3-06, ohne Streamlit, auch für optimierte Balance nutzbar)
 def analyze(config: CommunityConfig, inputs: CommunityInputs) -> BaselineAnalysis

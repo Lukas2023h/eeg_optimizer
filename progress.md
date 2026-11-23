@@ -70,10 +70,21 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - INV-5: `tests/perf/test_performance.py` (15 HH, 60 Geräte, 2023, max_shared, MILP) läuft in 47,9 s, Puffer ca. 12 s. Der Rest steckt fast ganz in PuLP/CBC: Modellaufbau, MPS-Datei, ~30 ms Solver-Prozess je Block. Wenn es knapp wird, gibt es diese Hebel: `evaluate` je Block 2× (Geräte-Series einzeln validiert, ~15 % profiliert), Block-Bewertung über `milp.objective_weights`, `baseline_device_schedule` je Block. Große semikontinuierliche Geräte (min_power_kw) brauchen ggf. `mip_gap` (3 von 600 2-Tage-Blöcken > 20 s ohne Gap). (F5-04, F5-07, F5-08)
 - F5-09: Mit min-Optionen kann die Baseline sie verletzen und mehr teilen; dann fällt der Block zurück (MILP und Greedy schlechter als Baseline) und INV-2 gilt für diesen Block nicht, aber er wird ausgewiesen. Beispielkonfigurationen haben keine min-Optionen. Bei min_cost mit sehr negativen Spotpreisen Big-M-Binärvariablen (mehr MIP-Anteil). (F4-02, F5-04, F5-05)
 - CBC 2.10.3: Die MIP-Vorverarbeitung liefert auf manchen Blöcken Werte über der Obergrenze trotz „Optimal“. `solve_block` löst dann ohne Vorverarbeitung neu (architecture §4). Bei einem PuLP/CBC-Upgrade schlägt `test_regression_example_community_january_min_cost_has_no_fallback` absichtlich fehl (`False in calls`); dann prüfen, ob der Workaround noch nötig ist. Standardszenario-Tests (`tests/unit/test_standard_scenario.py`, 3 Jahresläufe ~48 s) laufen bewusst in check.sh. (F5-09)
+- F6-02/F7-01: `compare.compare_schedule(OptimizationInputs.from_community(inputs, cfg), run.schedule.devices, allocation.strategy_for(cfg.allocation), tariff="fixed")` liefert `Comparison` (`table` mit Haushaltszeilen + Zeile `compare.TOTAL_ROW` = "total" für die UI-Beschriftung „Summe“, Skalare `additional_shared_kwh`, `saved_community_eur`, `saved_households_eur`, `avoided_kg_co2`; `baseline`/`optimized` = `Scenario` mit `loads`, `balance`, `allocation`, `costs`, `emissions` für Tagesprofil und CSV-Export). € in `table` = Haushaltssicht, Gemeinschaftssicht nur als Skalar. Tarif "fixed" passt zu `analysis.analyze`; für das Ziel min_cost ggf. zusätzlich "spot" zeigen. (F6-01)
+- MILP-Ziel steht seit F6-01 in ct bzw. g (`milp.OBJECTIVE_SCALE`); wer `pulp.value(model.problem.objective)` liest, teilt durch `model.objective_scale`. (F6-01)
 - MILP: Leerer Block-Index wird in `solve_block` nicht abgefangen (IndexError); der Runner erzeugt keine leeren Blöcke. (F5-02)
 - F6-02/F7-03: Die Seite `/optimierung` legt den letzten Lauf als `optimize.report.OptimizationRun` (`config`, `schedule`) in `st.session_state[report.SESSION_RUN_KEY]` ab. Die Vergleichsseite prüft `run.config == aktive Konfiguration` (sonst Hinweis „neu rechnen“) und holt die Zeitreihen wieder über `build_inputs` (gecacht). Hinweistexte `report.UPPER_BOUND_NOTE`/`BLOCK_NOTE`. Ein Jahreslauf MILP (Offline-Beispiel) dauert ca. 15 s. E2E: Auf Text `^Rückfall-Blöcke: \d+ von \d+` warten (Timeout 180 s). `_number` (deutsches Zahlenformat) gibt es jetzt doppelt in `analysis.py` und `optimization.py`; F6-02 sollte es in ein gemeinsames Modul ziehen. (F5-10)
 
 ---
+
+## 2026-11-23 – F6-01 – Vergleich Baseline vs. optimiert
+- Ergebnis: PASS (Evaluator PASS nach 1 FAIL; Reviewer OK, 3 minor/nit behoben)
+- Gemacht: Neues Modul `compare.py`: `scenario` (Fahrplan → Lasten, Bilanz, Allocation, Kosten fix/spot, CO₂), `compare` → `Comparison` (Tabelle je Haushalt + `total`, Spalten shared/cost/emissions baseline/optimized + Deltas, Skalare Gemeinschafts- und Haushaltssicht), `compare_schedule` (gegen `baseline_device_schedule`), `ComparisonInputError` (Haushalte, Index, PV, Tarifart, reservierte ID "total"). Tests `tests/unit/test_compare.py` (17), `tests/property/test_compare.py` (2). architecture.md §4 ergänzt.
+- Reparatur: Evaluator-FAIL: `test_greedy_is_never_better_than_the_milp[min_co2]` war rot (Greedy 1e-6 kg besser als MILP, Fall vom 28./29.10.). Ursache: Das MILP-Ziel stand in kg/€, Gewichtsunterschiede von ~1e-7 kg/kWh (co2 1e-4 vs. 6e-8 g/kWh) lagen in der CBC-Dualtoleranz. Fix: `milp.OBJECTIVE_SCALE` (LP in ct bzw. g), `BlockModel.objective_scale`. Regressionstest `test_milp_objectives.py::test_tiny_weight_differences_are_not_lost_in_the_cbc_tolerance` (vorher rot). Drei Tests lesen den LP-Wert jetzt geteilt durch die Skala, die Toleranzen sind unverändert. INV-5 weiterhin grün (slow 48 s).
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor): `tests/property/test_compare.py` importiert Strategie/Settings aus `tests.property.test_runner` (wie test_runner aus test_milp); ein gemeinsames Helper-Modul wäre sauberer.
+- Fehlertypen: solver-precision
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F6-02).
 
 ## 2026-11-23 – F1-09 – Haushaltslast aus Open Power System Data (optional)
 - Ergebnis: PASS (Evaluator PASS 2×; Reviewer: 2 major behoben)
@@ -109,12 +120,3 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Fehlertypen: zeit-einheit
 - Anmerkung: Eigener Fehlversuch ohne Folgen: Der erste Schnellpfad nutzte `Timedelta.value` (immer ns), der Index war aber in µs, deshalb griff der Pfad nie. Ein Test je Zeiteinheit sichert das jetzt ab.
 - Nächster Schritt: `scripts/next_feature.sh`.
-
-## 2026-11-21 – F5-07 – Runner: Tageszerlegung, Rückfall und Ausweis
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK)
-- Gemacht: Neues Modul `optimize/runner.py`: `optimize` (Block je Tag mit Fensterbeginn, Horizont bis spätestes Fensterende; feste Last = aktueller Fahrplan der anderen Tage im Block; Kette MILP → Greedy → Baseline mit Vergleich per `evaluate`, `SCORE_TOLERANCE` 1e-6), `Schedule`, `FallbackBlock`, `RunnerInputError`. `devices.tasks`/`baseline_schedule` mit `day=`, `OptimizationInputs.task_day` + `.tasks(device)`, genutzt von MILP und Greedy. Tests: `tests/unit/test_runner.py` (Mock-Rückfälle zählen, schlechteres Ergebnis verworfen, Toleranzgrenze, 18–07 über Blockgrenze, Folgetag-Fenster nicht doppelt, feste Last, greedy ohne MILP, Begründungstest spätere Baseline), `tests/unit/test_runner_year.py` (Jahr, 3 Haushalte, INV-2/INV-3), `tests/property/test_runner.py` (alle Ziele × beide Solver). architecture.md §4/§5 ergänzt.
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit): Jahrestest ~12 s in check.sh (Akzeptanzkriterium, nicht slow markiert). Nachbarblock-Auswahl `blocks[i-1:i+2]` setzt Fenster ≤ 24 h ab Tagesbeginn voraus (Kommentar im Code, durch Gerätevalidierung gegeben). INV-3 übers Jahr nur bis Blöcke × 1e-6. Greedy kann im Jahr minimal besser sein als MILP (myopische Blöcke, Evaluator-Befund, kein Verstoß).
-- Fehlertypen: spec-abweichung
-- Anmerkung: Abweichung: architecture §5 sah nur frühere Blöcke als feste Last vor; das kann das Jahr unter die Baseline drücken (Begründungstest, Variante −1,2 statt −0,2 kg). Folge: keine Parallelisierung der Blöcke.
-- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-08, Laufzeit siehe Offene Punkte).

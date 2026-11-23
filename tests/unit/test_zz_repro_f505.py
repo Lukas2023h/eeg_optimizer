@@ -68,7 +68,8 @@ def test_negative_shared_value_with_tiny_values_is_solved_and_scored_like_evalua
 
     score = evaluate(schedule, inputs, "min_cost")
     # Below SHARED_BINARY_MIN_KWH the model may share less than the balance: < 1e-6 €.
-    assert pulp.value(model.problem.objective) == pytest.approx(score, abs=1e-6)
+    value = pulp.value(model.problem.objective) / model.objective_scale
+    assert value == pytest.approx(score, abs=1e-6)
 
 
 def test_binary_only_where_the_minimum_of_pv_and_load_is_open() -> None:

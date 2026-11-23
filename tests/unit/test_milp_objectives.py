@@ -147,6 +147,32 @@ def test_program_starts_in_the_best_pair_of_intervals(objective: Objective) -> N
     _only_used_at(schedule["a"]["washer"], [50, 51], 0.5)
 
 
+@pytest.mark.parametrize(
+    ("objective", "high", "low"),
+    [("min_co2", 1e-4, 6e-8), ("min_cost", 10.0, 10.0 - 1e-5)],
+)
+def test_tiny_weight_differences_are_not_lost_in_the_cbc_tolerance(
+    objective: Objective, high: float, low: float
+) -> None:
+    # Regression (greedy property test, 2023-11-23): in kg/kWh resp. €/kWh these differences
+    # are ~1e-7, CBC's dual tolerance, so CBC took the baseline interval as optimal. The model
+    # works in g resp. ct (OBJECTIVE_SCALE); 10.5 kWh in the wrong place would cost ~1e-6.
+    values = np.full(N, high)
+    values[[60, 61]] = low
+    big = ModulatingDevice(
+        id="ev",
+        power_kw=KW(21.0),  # 5.25 kWh per interval, 10.5 kWh = two intervals at full power
+        energy_kwh_per_day=KWh(10.5),
+        window=TimeWindow(time(6, 0), time(20, 0)),
+        baseline_start=time(6, 0),
+    )
+    inputs = _inputs((big,), spot=values, co2=values)
+
+    schedule = solve_block(inputs, objective)
+
+    _only_used_at(schedule["a"]["ev"], [60, 61], 5.25)
+
+
 def test_min_cost_with_pv_prefers_the_surplus_over_a_cheap_grid_interval() -> None:
     pv = np.zeros(N)
     pv[48] = 0.6  # surplus 0.5 kWh at 12:00
@@ -201,7 +227,8 @@ def test_optimal_lp_value_is_the_score_of_evaluate(objective: Objective) -> None
     schedule = solve_block(inputs, objective)
 
     score = evaluate(schedule, inputs, objective)
-    assert pulp.value(model.problem.objective) == pytest.approx(score, abs=1e-6)
+    value = pulp.value(model.problem.objective) / model.objective_scale
+    assert value == pytest.approx(score, abs=1e-6)
     assert score >= evaluate(baseline_device_schedule(inputs), inputs, objective) - 1e-9
 
 

@@ -560,7 +560,7 @@
       "Bei fixem Tarif: gesparte € Gemeinschaft == Δ shared_kWh × value_shared (Test)",
       "Identische Fahrpläne -> alle Deltas 0 (Test)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F6-02",

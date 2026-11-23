@@ -118,6 +118,15 @@ BOUND_TOLERANCE_KWH: Final = 1e-6
 """Largest distance a solved modulating variable may lie outside ``[0, cap]`` and still count as
 rounding noise (CBC primal tolerance ~1e-7). More is a solver error (module docstring, CBC
 preprocessing bug) and triggers the solve without preprocessing."""
+OBJECTIVE_SCALE: Final[Mapping[Objective, float]] = {
+    "max_shared": 1.0,
+    "min_cost": 1.0 / ct_to_eur(1.0),
+    "min_co2": 1.0 / g_to_kg_co2(1.0),
+}
+"""Factor from the score unit (kWh, €, kg CO₂) to the unit of the LP objective (kWh, ct, g).
+In €/kWh and kg/kWh small weight differences are ~1e-7, CBC's dual tolerance, and CBC
+returned a schedule 1e-6 kg worse than the optimum (co2 1e-4 vs. 6e-8 g/kWh). In ct and g the
+lost difference is at most ~1e-7 ct resp. g per kWh. The optimum does not change."""
 RUN_FLOOR_SHARE: Final = 0.01
 """Share of ``cap`` used as minimum energy per running interval when only ``min_run_min`` is
 set (see module docstring)."""
@@ -168,6 +177,9 @@ class BlockModel:
     index: pd.DatetimeIndex
     device_vars: Mapping[str, Mapping[str, DeviceVars]]
     """household_id -> device_id -> variables."""
+    objective_scale: float = 1.0
+    """LP objective = score of :func:`objectives.evaluate` * objective_scale
+    (:data:`OBJECTIVE_SCALE`)."""
 
 
 def _check_supported(inputs: OptimizationInputs, objective: Objective) -> None:
@@ -429,12 +441,13 @@ def build_block_model(inputs: OptimizationInputs, objective: Objective) -> Block
                 inflexible=float(load[t]),
                 load_max=load_max[t],
             )
+    scale = OBJECTIVE_SCALE[objective]
     problem += (
-        pulp.lpSum(float(weights.shared_weight[t]) * shared[t] for t in range(n))
-        - pulp.lpSum(float(weights.load_weight[t]) * total_load[t] for t in range(n))
-        + float(np.dot(weights.pv_weight, pv))
+        pulp.lpSum(scale * float(weights.shared_weight[t]) * shared[t] for t in range(n))
+        - pulp.lpSum(scale * float(weights.load_weight[t]) * total_load[t] for t in range(n))
+        + scale * float(np.dot(weights.pv_weight, pv))
     )
-    return BlockModel(problem=problem, index=index, device_vars=device_vars)
+    return BlockModel(problem=problem, index=index, device_vars=device_vars, objective_scale=scale)
 
 
 def _force_shared_to_minimum(

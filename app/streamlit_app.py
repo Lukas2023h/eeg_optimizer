@@ -10,6 +10,7 @@ navigation = st.navigation(
         st.Page("pages/configuration.py", title="Konfiguration", url_path="konfiguration"),
         st.Page("pages/analysis.py", title="Ist-Analyse", url_path="ist-analyse"),
         st.Page("pages/optimization.py", title="Optimierung", url_path="optimierung"),
+        st.Page("pages/comparison.py", title="Vergleich", url_path="vergleich"),
         st.Page("pages/status.py", title="Systemstatus", url_path="systemstatus"),
     ]
 )

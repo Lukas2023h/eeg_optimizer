@@ -23,6 +23,7 @@ from eeg_optimizer.config import (
     parse_config,
 )
 from eeg_optimizer.config_store import DEFAULT_CONFIG_PATH, SESSION_CONFIG_KEY, SESSION_PATH_KEY
+from eeg_optimizer.formatting import german_number
 from eeg_optimizer.sources.cache import CacheError
 
 MONTH_LABELS = ("Jän", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez")
@@ -38,10 +39,7 @@ def _analyze(config_json: str) -> analysis.BaselineAnalysis:
     return analysis.analyze(config, build_inputs(config))
 
 
-def _number(value: float, decimals: int = 0) -> str:
-    """German number format: 12.345,6."""
-    text = f"{value:,.{decimals}f}"
-    return text.replace(",", "_").replace(".", ",").replace("_", ".")
+_number = german_number
 
 
 def _percent(ratio: float) -> str:

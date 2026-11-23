@@ -23,6 +23,7 @@ from eeg_optimizer.config import (
     parse_config,
 )
 from eeg_optimizer.config_store import DEFAULT_CONFIG_PATH, SESSION_CONFIG_KEY, SESSION_PATH_KEY
+from eeg_optimizer.formatting import german_number
 from eeg_optimizer.optimize.objectives import OBJECTIVES, Objective, OptimizationInputs
 from eeg_optimizer.optimize.report import (
     NOTES,
@@ -44,10 +45,7 @@ def _community_inputs(config_json: str) -> CommunityInputs:
     return build_inputs(parse_config(json.loads(config_json)))
 
 
-def _number(value: float, decimals: int = 0) -> str:
-    """German number format: 12.345,6."""
-    text = f"{value:,.{decimals}f}"
-    return text.replace(",", "_").replace(".", ",").replace("_", ".")
+_number = german_number
 
 
 def _active_config() -> CommunityConfig:
@@ -118,6 +116,7 @@ def _show_result(run: OptimizationRun) -> None:
     with st.container(border=True, key="optimization_notes"):
         st.markdown("**Einordnung des Ergebnisses**")
         st.markdown("\n".join(f"- {note}" for note in NOTES))
+    st.page_link("pages/comparison.py", label="Zum Vergleich vorher/nachher")
 
 
 st.title("Optimierung")

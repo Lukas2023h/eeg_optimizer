@@ -280,6 +280,13 @@ def compare(baseline: Scenario, optimized: Scenario) -> Comparison
 # total-Zeile für kWh/CO₂ = Gemeinschaftswert (Haushalte summieren sich dank INV-7 dazu, 1e-6).
 # Fester Tarif: saved_community_eur == additional_shared_kwh × value_shared (gleiche Geräteenergie).
 # ComparisonInputError: andere Haushalte, Index, PV (> PV_TOLERANCE_KWH 1e-9) oder Tarifart; Haushalt "total".
+# Tagesansicht (F6-02): days(c) -> list[date] (Ortszeit), additional_shared_by_day(c) -> Series
+# additional_shared_kwh (Index day), best_day(c) -> Tag mit größtem Gewinn (Gleichstand: frühester),
+# day_profile(c, day) -> DataFrame je 15-min-Intervall des Tages (92/96/100 Zeilen), Spalten
+# DAY_PROFILE_COLUMNS = pv_kw, load_baseline_kw, load_optimized_kw (Gemeinschaft); fremder Tag -> ComparisonInputError.
+
+# formatting.py (F6-02): german_number(value, decimals=0, signed=False) -> "12.345,6" bzw. "+1.234";
+# auf 0 gerundete Werte ohne Vorzeichen. Einzige Zahlenformatierung der UI-Seiten.
 
 # analysis.py (F3-06, ohne Streamlit, auch für optimierte Balance nutzbar)
 def analyze(config: CommunityConfig, inputs: CommunityInputs) -> BaselineAnalysis
@@ -311,6 +318,8 @@ Die Quellen holen über HTTP nur, wenn der Cache fehlt (`data/cache/<source>/<ke
 ## 6. UI (Streamlit)
 
 Seiten: **Konfiguration** (YAML laden/bearbeiten/speichern), **Ist-Analyse** (KPIs, Tages-/Monatsprofil, Heatmap), **Optimierung** (Ziel und Solver wählen, Start, Laufzeit), **Vergleich** (pro Haushalt und gesamt), **Export** (CSV). Hinweisbox auf jeder Ergebnisseite: „Obergrenze bei perfekter Voraussicht. Annahmen siehe …“. Neben dem Optimierungsergebnis stehen außerdem „pro Tagesblock optimal, nicht global“ und die Anzahl der Rückfall-Blöcke. Für Playwright erhalten wichtige Elemente stabile Labels bzw. `key`s. Berechnungen werden per `st.cache_data` gecacht.
+
+**Vergleich (F6-02):** Seite `app/pages/comparison.py`, URL `/vergleich`, erreichbar auch über den Link „Zum Vergleich vorher/nachher“ unter dem Optimierungsergebnis. Sie zeigt den letzten Lauf aus `st.session_state[report.SESSION_RUN_KEY]`. Fehlt er oder gehört er zu einer anderen Konfiguration, erscheint ein Hinweis mit Link zur Optimierung. `compare.compare_schedule` wird einmal je Lauf gerechnet (Session-Key `comparison_result` = (Lauf, Vergleich)). Der Tarif ist `spot` beim Ziel `min_cost`, sonst `fixed`. Inhalt: Kopfzeile „+X kWh gemeinsam genutzt · Y € gespart · Z kg CO₂ vermieden“ (Gemeinschaftssicht), drei Kennzahlen, Hinweisbox `comparison_notes` (Obergrenze, Tagesblock, Annahmen), Tabelle `comparison_table` (`st.table`, eine Zeile je Haushalt plus „Summe“, € in Haushaltssicht) und Tagesdiagramm `comparison_day_chart` (PV, Verbrauch vorher/nachher) für den Tag aus der Auswahl „Tag“ (Selectbox mit Suche, vorgewählt `best_day`; das neue `st.date_input` hat kein normales Eingabefeld für Playwright).
 
 **Aktive Konfiguration (F2-04):** Die Seite Konfiguration (`app/pages/configuration.py`, URL `/konfiguration`) legt die gewählte bzw. übernommene Konfiguration als `CommunityConfig` in `st.session_state["community_config"]` ab (Konstante `config_store.SESSION_CONFIG_KEY`), die Herkunftsdatei in `SESSION_PATH_KEY`. Fehlt der Eintrag, laden andere Seiten `config_store.DEFAULT_CONFIG_PATH`. Die Logik ohne Streamlit liegt in `config_store.py`: `available_configs` (Beispiele aus `config/` ohne `defaults.yaml` plus `data/configs/*.yaml`), `apply_edits(cfg, teil_mapping)` (Validierung nur über `parse_config`), `resize_households` und `save_user_config` (nach `data/configs/<name>.yaml`, Name nur `[A-Za-z0-9_-]`). Ungültige Eingaben zeigen die `ConfigError`-Meldung und lassen die zuletzt gültige Konfiguration aktiv.
 

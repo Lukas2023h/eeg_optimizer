@@ -25,13 +25,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 from typing import Final
 
 import numpy as np
 import pandas as pd
 
 from eeg_optimizer.allocation import AllocationStrategy, household_frame, household_ids
-from eeg_optimizer.balance import PV_COLUMN, SHARED_COLUMN, community_balance
+from eeg_optimizer.balance import LOAD_COLUMN, PV_COLUMN, SHARED_COLUMN, community_balance
 from eeg_optimizer.economics import (
     EMISSIONS_COLUMN,
     HOUSEHOLD_COST_COLUMN,
@@ -47,7 +48,7 @@ from eeg_optimizer.optimize.objectives import (
     baseline_device_schedule,
     schedule_loads,
 )
-from eeg_optimizer.units import Eur, KgCO2, KWh
+from eeg_optimizer.units import Eur, KgCO2, KWh, kwh_to_kw
 
 TOTAL_ROW: Final = "total"
 """Index label of the total row of :attr:`Comparison.table`."""
@@ -73,6 +74,17 @@ COMPARISON_COLUMNS: Final = (
     AVOIDED_COLUMN,
 )
 """Columns of :attr:`Comparison.table` (aggregate table, no time series)."""
+
+PV_POWER_COLUMN: Final = "pv_kw"
+LOAD_BASELINE_POWER_COLUMN: Final = "load_baseline_kw"
+LOAD_OPTIMIZED_POWER_COLUMN: Final = "load_optimized_kw"
+DAY_PROFILE_COLUMNS: Final = (
+    PV_POWER_COLUMN,
+    LOAD_BASELINE_POWER_COLUMN,
+    LOAD_OPTIMIZED_POWER_COLUMN,
+)
+"""Columns of :func:`day_profile` (power of the community, kW)."""
+DAY_NAME: Final = "day"
 
 PV_TOLERANCE_KWH: Final = 1e-9
 """Both scenarios must have the same PV per interval (they differ only in the schedule)."""
@@ -261,6 +273,64 @@ def _row(
     }
 
 
+def days(comparison: Comparison) -> list[date]:
+    """Calendar days (local time) of the comparison, ascending."""
+    index = pd.DatetimeIndex(comparison.baseline.balance.index)
+    return sorted(set(index.date))
+
+
+def additional_shared_by_day(comparison: Comparison) -> pd.Series:
+    """Additional shared PV of the community per calendar day (optimized - baseline).
+
+    Returns:
+        Series ``additional_shared_kwh``, index ``day`` (``datetime.date``, ascending).
+    """
+    delta = comparison.optimized.balance[SHARED_COLUMN].astype(float) - comparison.baseline.balance[
+        SHARED_COLUMN
+    ].astype(float)
+    index = pd.DatetimeIndex(comparison.baseline.balance.index)
+    by_day = delta.groupby(pd.Index(index.date, name=DAY_NAME)).sum().sort_index()
+    by_day.name = ADDITIONAL_SHARED_COLUMN
+    return by_day
+
+
+def best_day(comparison: Comparison) -> date:
+    """Day with the largest additional shared PV (earliest on a tie): the default chart day."""
+    by_day = additional_shared_by_day(comparison)
+    if by_day.empty:
+        raise ComparisonInputError("the comparison has no days")
+    best: date = by_day.index[int(np.argmax(by_day.to_numpy(dtype=float)))]
+    return best
+
+
+def day_profile(comparison: Comparison, day: date) -> pd.DataFrame:
+    """Power of one calendar day (local time) before and after the optimization.
+
+    Returns:
+        One row per 15-min interval of ``day`` (index = interval start, tz of the inputs;
+        92/96/100 rows on DST days), columns :data:`DAY_PROFILE_COLUMNS`: community PV,
+        community load of the baseline and of the optimized schedule, all in kW.
+
+    Raises:
+        ComparisonInputError: ``day`` is not part of the comparison.
+    """
+    index = pd.DatetimeIndex(comparison.baseline.balance.index)
+    mask = index.date == day
+    if not mask.any():
+        first, last = (index[0].date(), index[-1].date()) if len(index) else (None, None)
+        raise ComparisonInputError(f"day {day} is not part of the comparison ({first} .. {last})")
+    base = comparison.baseline.balance.loc[mask]
+    opt = comparison.optimized.balance.loc[mask]
+    return pd.DataFrame(
+        {
+            PV_POWER_COLUMN: kwh_to_kw(base[PV_COLUMN].to_numpy(dtype=float)),
+            LOAD_BASELINE_POWER_COLUMN: kwh_to_kw(base[LOAD_COLUMN].to_numpy(dtype=float)),
+            LOAD_OPTIMIZED_POWER_COLUMN: kwh_to_kw(opt[LOAD_COLUMN].to_numpy(dtype=float)),
+        },
+        index=base.index,
+    )
+
+
 def compare_schedule(
     inputs: OptimizationInputs,
     schedule: DeviceSchedule,
@@ -281,8 +351,13 @@ __all__ = [
     "COMPARISON_COLUMNS",
     "COST_BASELINE_COLUMN",
     "COST_OPTIMIZED_COLUMN",
+    "DAY_NAME",
+    "DAY_PROFILE_COLUMNS",
     "EMISSIONS_BASELINE_COLUMN",
     "EMISSIONS_OPTIMIZED_COLUMN",
+    "LOAD_BASELINE_POWER_COLUMN",
+    "LOAD_OPTIMIZED_POWER_COLUMN",
+    "PV_POWER_COLUMN",
     "PV_TOLERANCE_KWH",
     "SAVED_COLUMN",
     "SHARED_BASELINE_COLUMN",
@@ -291,7 +366,11 @@ __all__ = [
     "Comparison",
     "ComparisonInputError",
     "Scenario",
+    "additional_shared_by_day",
+    "best_day",
     "compare",
     "compare_schedule",
+    "day_profile",
+    "days",
     "scenario",
 ]

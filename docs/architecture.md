@@ -287,6 +287,8 @@ def compare(baseline: Scenario, optimized: Scenario) -> Comparison
 
 # formatting.py (F6-02): german_number(value, decimals=0, signed=False) -> "12.345,6" bzw. "+1.234";
 # auf 0 gerundete Werte ohne Vorzeichen. Einzige Zahlenformatierung der UI-Seiten.
+# time_labels(index) -> ["00:00", …]; am Tag der Rückstellung (Okt.) bekommt 02:00–02:45 den
+# Zusatz " (Sommerzeit)"/" (Winterzeit)", damit die Kategorie-Achse im Tagesdiagramm eindeutig bleibt.
 
 # analysis.py (F3-06, ohne Streamlit, auch für optimierte Balance nutzbar)
 def analyze(config: CommunityConfig, inputs: CommunityInputs) -> BaselineAnalysis

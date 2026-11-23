@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
-from eeg_optimizer.formatting import german_number
+from eeg_optimizer.formatting import german_number, time_labels
 
 
 @pytest.mark.parametrize(
@@ -43,3 +44,39 @@ def test_values_rounding_to_zero_have_no_sign(value: float, signed: bool) -> Non
     """Solver noise like -1e-9 kWh must not show up as '-0' or '+0'."""
     assert german_number(value, 2, signed=signed) == "0,00"
     assert german_number(value, 0, signed=signed) == "0"
+
+
+def _day(day: str) -> pd.DatetimeIndex:
+    """15-min intervals of one local calendar day (92/96/100 intervals)."""
+    start = pd.Timestamp(day, tz="Europe/Vienna")
+    end = (start.tz_localize(None) + pd.Timedelta(days=1)).tz_localize("Europe/Vienna")
+    return pd.date_range(start, end, freq="15min", inclusive="left")
+
+
+def test_time_labels_of_a_normal_day_are_plain_clock_times() -> None:
+    labels = time_labels(_day("2023-06-15"))
+    assert len(labels) == 96
+    assert labels[:2] == ["00:00", "00:15"]
+    assert labels[-1] == "23:45"
+
+
+def test_time_labels_are_unique_on_the_dst_fall_back_day() -> None:
+    labels = time_labels(_day("2023-10-29"))
+    assert len(labels) == 100
+    assert len(set(labels)) == 100
+    assert labels[8:13] == [
+        "02:00 (Sommerzeit)",
+        "02:15 (Sommerzeit)",
+        "02:30 (Sommerzeit)",
+        "02:45 (Sommerzeit)",
+        "02:00 (Winterzeit)",
+    ]
+    assert labels[7] == "01:45"
+    assert labels[16] == "03:00"
+
+
+def test_time_labels_of_the_dst_spring_day_skip_the_missing_hour() -> None:
+    labels = time_labels(_day("2023-03-26"))
+    assert len(labels) == 92
+    assert "02:00" not in labels
+    assert labels[8] == "03:00"

@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-11-21 – F5-08 – Performance: 15 Haushalte × 1 Jahr < 60 s
+- Ergebnis: PASS (Evaluator PASS nach 1 FAIL: Laufzeit fehlte noch in progress.md; Reviewer OK, Nit „Schrittweite 0 bei Intervall feiner als Index-Einheit“ behoben)
+- Gemacht: `tests/perf/test_performance.py` (slow): synthetisches Jahr 2023, 15 Haushalte mit je 3–5 Beispielgeräten (60 insgesamt), max_shared, MILP, Wandzeit um `optimize` gemessen, Assert `< 60 s`, `fallback_ratio == 0`, Ergebnis ≥ Baseline. **Gemessen: 47,8 s / 47,9 s** (zwei Läufe, 365 Blöcke, fallback_ratio 0, shared 45 705 → 58 922 kWh). Vorher 80,3 s. Beschleunigung: `units._is_aligned_gapless_grid` (int64-Schnellpfad in `_validate_index`, Schrittweite in der Einheit des Index; nur ungültige Indizes laufen über die alten Prüfungen mit Meldung) und `lru_cache` auf `devices._local_instant`. Tests: `tests/unit/test_units.py` (Schnellpfad für s/ms/us/ns, Lücke/Versatz/umgekehrt je Einheit, Intervall). check.sh 105 s → 77 s.
+- Neue Abhängigkeiten: –
+- Offene Probleme: Puffer nur ~12 s auf diesem Laptop (siehe Offene Punkte INV-5).
+- Fehlertypen: zeit-einheit
+- Anmerkung: Eigener Fehlversuch ohne Folgen: Der erste Schnellpfad nutzte `Timedelta.value` (immer ns), der Index war aber in µs, deshalb griff der Pfad nie. Ein Test je Zeiteinheit sichert das jetzt ab.
+- Nächster Schritt: `scripts/next_feature.sh`.
+
 ## 2026-11-21 – F5-07 – Runner: Tageszerlegung, Rückfall und Ausweis
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: Neues Modul `optimize/runner.py`: `optimize` (Block je Tag mit Fensterbeginn, Horizont bis spätestes Fensterende; feste Last = aktueller Fahrplan der anderen Tage im Block; Kette MILP → Greedy → Baseline mit Vergleich per `evaluate`, `SCORE_TOLERANCE` 1e-6), `Schedule`, `FallbackBlock`, `RunnerInputError`. `devices.tasks`/`baseline_schedule` mit `day=`, `OptimizationInputs.task_day` + `.tasks(device)`, genutzt von MILP und Greedy. Tests: `tests/unit/test_runner.py` (Mock-Rückfälle zählen, schlechteres Ergebnis verworfen, Toleranzgrenze, 18–07 über Blockgrenze, Folgetag-Fenster nicht doppelt, feste Last, greedy ohne MILP, Begründungstest spätere Baseline), `tests/unit/test_runner_year.py` (Jahr, 3 Haushalte, INV-2/INV-3), `tests/property/test_runner.py` (alle Ziele × beide Solver). architecture.md §4/§5 ergänzt.

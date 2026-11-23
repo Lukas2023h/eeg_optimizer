@@ -28,7 +28,7 @@ from eeg_optimizer.config import (
 )
 from eeg_optimizer.config_store import DEFAULT_CONFIG_PATH, SESSION_CONFIG_KEY, SESSION_PATH_KEY
 from eeg_optimizer.economics import TariffKind
-from eeg_optimizer.formatting import german_number
+from eeg_optimizer.formatting import german_number, time_labels
 from eeg_optimizer.optimize.objectives import OptimizationInputs
 from eeg_optimizer.optimize.report import (
     BLOCK_NOTE,
@@ -42,6 +42,8 @@ from eeg_optimizer.sources.cache import CacheError
 
 SESSION_COMPARISON_KEY = "comparison_result"
 """Session-state key of ``(run, comparison)``: the comparison is computed once per run."""
+DAY_KEY = "comparison_day"
+"""Widget key of the day selection; reset when a new run is compared."""
 TOTAL_LABEL = "Summe"
 WEEKDAYS = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
 PV_COLOR = "#e8a317"
@@ -100,6 +102,8 @@ def _comparison(run: OptimizationRun) -> compare.Comparison:
             tariff=_tariff(run),
         )
     st.session_state[SESSION_COMPARISON_KEY] = (run, result)
+    # a new run preselects its own best day instead of keeping the old selection
+    st.session_state.pop(DAY_KEY, None)
     return result
 
 
@@ -148,7 +152,8 @@ def _household_table(result: compare.Comparison) -> pd.DataFrame:
 
 
 def _day_figure(profile: pd.DataFrame) -> go.Figure:
-    x = [t.strftime("%H:%M") for t in pd.DatetimeIndex(profile.index)]
+    # unique labels also on the DST fall-back day (02:00 twice), else the lines fold back
+    x = time_labels(pd.DatetimeIndex(profile.index))
     fig = go.Figure()
     fig.add_scatter(
         x=x,
@@ -189,7 +194,7 @@ def _day_section(result: compare.Comparison) -> None:
         all_days,
         index=all_days.index(default),
         format_func=lambda d: f"{WEEKDAYS[d.weekday()]} {d.strftime('%d.%m.%Y')}",
-        key="comparison_day",
+        key=DAY_KEY,
     )
     gain = compare.additional_shared_by_day(result).get(day, 0.0)
     st.caption(

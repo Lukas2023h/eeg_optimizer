@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
+import pandas as pd
+
 
 def german_number(value: float, decimals: int = 0, *, signed: bool = False) -> str:
     """Format ``value`` German style: thousands '.', decimal ','; e.g. ``12.345,6``.
@@ -19,4 +23,24 @@ def german_number(value: float, decimals: int = 0, *, signed: bool = False) -> s
     return text.replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-__all__ = ["german_number"]
+def time_labels(index: pd.DatetimeIndex) -> list[str]:
+    """Local clock times ``HH:MM`` of a day, unique also on the DST fall-back day.
+
+    On the last Sunday of October 02:00 to 02:45 occurs twice; those labels get the
+    German suffix " (Sommerzeit)" or " (Winterzeit)" so a category axis does not fold
+    the second hour onto the first.
+    """
+    plain = [t.strftime("%H:%M") for t in index]
+    counts = Counter(plain)
+    return [
+        label if counts[label] == 1 else f"{label} ({_dst_name(t)})"
+        for label, t in zip(plain, index, strict=True)
+    ]
+
+
+def _dst_name(timestamp: pd.Timestamp) -> str:
+    dst = timestamp.dst()
+    return "Sommerzeit" if dst is not None and dst > pd.Timedelta(0) else "Winterzeit"
+
+
+__all__ = ["german_number", "time_labels"]

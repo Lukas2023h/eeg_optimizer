@@ -576,7 +576,7 @@
       "E2E: Tabelle mit einer Zeile je Haushalt plus Summe",
       "E2E: Diagramm vorher/nachher für einen wählbaren Tag; Hinweis auf Obergrenze sichtbar"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F7-01",

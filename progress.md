@@ -73,9 +73,19 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - F6-02/F7-01: `compare.compare_schedule(OptimizationInputs.from_community(inputs, cfg), run.schedule.devices, allocation.strategy_for(cfg.allocation), tariff="fixed")` liefert `Comparison` (`table` mit Haushaltszeilen + Zeile `compare.TOTAL_ROW` = "total" für die UI-Beschriftung „Summe“, Skalare `additional_shared_kwh`, `saved_community_eur`, `saved_households_eur`, `avoided_kg_co2`; `baseline`/`optimized` = `Scenario` mit `loads`, `balance`, `allocation`, `costs`, `emissions` für Tagesprofil und CSV-Export). € in `table` = Haushaltssicht, Gemeinschaftssicht nur als Skalar. Tarif "fixed" passt zu `analysis.analyze`; für das Ziel min_cost ggf. zusätzlich "spot" zeigen. (F6-01)
 - MILP-Ziel steht seit F6-01 in ct bzw. g (`milp.OBJECTIVE_SCALE`); wer `pulp.value(model.problem.objective)` liest, teilt durch `model.objective_scale`. (F6-01)
 - MILP: Leerer Block-Index wird in `solve_block` nicht abgefangen (IndexError); der Runner erzeugt keine leeren Blöcke. (F5-02)
-- F6-02/F7-03: Die Seite `/optimierung` legt den letzten Lauf als `optimize.report.OptimizationRun` (`config`, `schedule`) in `st.session_state[report.SESSION_RUN_KEY]` ab. Die Vergleichsseite prüft `run.config == aktive Konfiguration` (sonst Hinweis „neu rechnen“) und holt die Zeitreihen wieder über `build_inputs` (gecacht). Hinweistexte `report.UPPER_BOUND_NOTE`/`BLOCK_NOTE`. Ein Jahreslauf MILP (Offline-Beispiel) dauert ca. 15 s. E2E: Auf Text `^Rückfall-Blöcke: \d+ von \d+` warten (Timeout 180 s). `_number` (deutsches Zahlenformat) gibt es jetzt doppelt in `analysis.py` und `optimization.py`; F6-02 sollte es in ein gemeinsames Modul ziehen. (F5-10)
+- F6-02/F7-03: Die Seite `/optimierung` legt den letzten Lauf als `optimize.report.OptimizationRun` (`config`, `schedule`) in `st.session_state[report.SESSION_RUN_KEY]` ab. Die Vergleichsseite prüft `run.config == aktive Konfiguration` (sonst Hinweis „neu rechnen“) und holt die Zeitreihen wieder über `build_inputs` (gecacht). Hinweistexte `report.UPPER_BOUND_NOTE`/`BLOCK_NOTE`. Ein Jahreslauf MILP (Offline-Beispiel) dauert ca. 15 s. E2E: Auf Text `^Rückfall-Blöcke: \d+ von \d+` warten (Timeout 180 s). (F5-10)
+- F7-03: Vergleichsseite `/vergleich` (`app/pages/comparison.py`) ist über den Link „Zum Vergleich vorher/nachher“ unter dem Optimierungsergebnis erreichbar (In-App-Navigation behält die Session, `page.goto` verliert den Lauf). E2E-Helfer `_open_comparison_after_run` in `tests/e2e/test_comparison_page.py`, Kopfzeile per Regex `kWh gemeinsam genutzt ·`. Zahlen nur über `formatting.german_number`, Uhrzeiten über `formatting.time_labels`. Nach Änderungen an `src/` den Server neu starten (`./init.sh stop`, `./init.sh`), Streamlit lädt Paketmodule nicht neu, sonst ImportError in E2E. (F6-02)
 
 ---
+
+## 2026-11-23 – F6-02 – UI: Vergleichsseite
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK, 2 minor behoben)
+- Gemacht: WIP-Commit 3d8c52d (unterbrochene Session) geprüft und abgeschlossen. Seite `app/pages/comparison.py` (`/vergleich`): Kopfzeile „+X kWh gemeinsam genutzt · Y € gespart · Z kg CO₂ vermieden“, drei Kennzahlen, Hinweisbox (Obergrenze, Tagesblock, Annahmen), Tabelle je Haushalt plus „Summe“, Tagesdiagramm PV/vorher/nachher mit Tagesauswahl (vorgewählt bester Tag). Tarif spot bei min_cost, sonst fix. `compare.days/additional_shared_by_day/best_day/day_profile`, neues Modul `formatting.py` (`german_number` ersetzt `_number` in beiden Seiten). Nach Review: `formatting.time_labels` (eindeutige Uhrzeiten am Tag der Zeitumstellung, sonst faltet das Diagramm), Tagesauswahl wird bei neuem Lauf zurückgesetzt. Tests: `test_compare_day.py`, `test_formatting.py` (inkl. 92/96/100-Intervall-Tage), E2E `test_comparison_page.py` (5). check.sh --e2e grün (951 + 24).
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): `use_container_width` ist in neueren Streamlit-Versionen veraltet. `compare.days`/`day_profile`/`additional_shared_by_day` bauen `.date` je Aufruf neu (Helfer `_local_dates` wäre sauberer). `_number = german_number`-Alias in analysis/optimization statt direkter Aufrufe. Die Seite verlässt sich darauf, dass `ASSUMPTION_NOTES[0]` der Obergrenzen-Hinweis ist. Tariftext in `_headline` doppelt berechnet.
+- Fehlertypen: zeit-einheit
+- Anmerkung: Eigener Testfehler: Der Testhelfer bildete den Kalendertag als `start + Timedelta(days=1)` (24 h absolut statt bis zur nächsten lokalen Mitternacht). Das ist sofort aufgefallen, weil die DST-Tests rot waren.
+- Nächster Schritt: `scripts/next_feature.sh`.
 
 ## 2026-11-23 – F6-01 – Vergleich Baseline vs. optimiert
 - Ergebnis: PASS (Evaluator PASS nach 1 FAIL; Reviewer OK, 3 minor/nit behoben)
@@ -110,13 +120,4 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Neue Abhängigkeiten: –
 - Offene Probleme (minor/nit): Zweiter CBC-Lauf bekommt erneut das volle Zeitlimit (Docstring). `bound_violations` prüft nur modulierende Variablen (Programme über `_chosen_start`). `run_cbc`/`bound_violations` öffentlich v. a. für Tests.
 - Fehlertypen: solver-bug
-- Nächster Schritt: `scripts/next_feature.sh`.
-
-## 2026-11-21 – F5-08 – Performance: 15 Haushalte × 1 Jahr < 60 s
-- Ergebnis: PASS (Evaluator PASS nach 1 FAIL: Laufzeit fehlte noch in progress.md; Reviewer OK, Nit „Schrittweite 0 bei Intervall feiner als Index-Einheit“ behoben)
-- Gemacht: `tests/perf/test_performance.py` (slow): synthetisches Jahr 2023, 15 Haushalte mit je 3–5 Beispielgeräten (60 insgesamt), max_shared, MILP, Wandzeit um `optimize` gemessen, Assert `< 60 s`, `fallback_ratio == 0`, Ergebnis ≥ Baseline. **Gemessen: 47,8 s / 47,9 s** (zwei Läufe, 365 Blöcke, fallback_ratio 0, shared 45 705 → 58 922 kWh). Vorher 80,3 s. Beschleunigung: `units._is_aligned_gapless_grid` (int64-Schnellpfad in `_validate_index`, Schrittweite in der Einheit des Index; nur ungültige Indizes laufen über die alten Prüfungen mit Meldung) und `lru_cache` auf `devices._local_instant`. Tests: `tests/unit/test_units.py` (Schnellpfad für s/ms/us/ns, Lücke/Versatz/umgekehrt je Einheit, Intervall). check.sh 105 s → 77 s.
-- Neue Abhängigkeiten: –
-- Offene Probleme: Puffer nur ~12 s auf diesem Laptop (siehe Offene Punkte INV-5).
-- Fehlertypen: zeit-einheit
-- Anmerkung: Eigener Fehlversuch ohne Folgen: Der erste Schnellpfad nutzte `Timedelta.value` (immer ns), der Index war aber in µs, deshalb griff der Pfad nie. Ein Test je Zeiteinheit sichert das jetzt ab.
 - Nächster Schritt: `scripts/next_feature.sh`.

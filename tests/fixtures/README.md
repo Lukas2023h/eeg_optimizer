@@ -8,5 +8,6 @@
 | `awattar_at_2023-03-26_dst_1d.json` | aWATTar API, echte Antwort für den Umstellungstag 2023-03-26, 23 h | wie oben |
 | `energy_charts_public_power_at_2023-07-02_1d.json` | Energy-Charts API (Fraunhofer ISE, `api.energy-charts.info/public_power?country=at`), echte Antwort für 2023-07-02 (Ortszeit), 96 Viertelstunden | CC BY 4.0 (Energy-Charts) |
 | `energy_charts_public_power_at_2023-03-26_dst_1d.json` | Energy-Charts API, echte Antwort für den Umstellungstag 2023-03-26, 92 Viertelstunden | wie oben |
+| `opsd_household_15min_synthetic_2h.csv` | **Synthetisch**, von Hand geschrieben im Spaltenlayout von OPSD `household_data_15min_singleindex.csv` (Version 2020-04-15): kumulative Zählerstände in kWh, 8 Viertelstunden, 2 Haushalte, Haushalt 2 mit leeren Zeilen am Anfang/Ende. Das Layout prüft ein Network-Test gegen die echte Kopfzeile | eigene Testdaten (keine OPSD-Werte) |
 
 Das sind öffentliche Referenzdatensätze, keine eigenen Verbrauchsdaten. Eigene Daten gehören nur nach `data/`.

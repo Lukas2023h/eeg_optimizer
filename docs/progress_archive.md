@@ -4,6 +4,15 @@
 
 ---
 
+## 2026-11-21 – F5-06 – Greedy-Heuristik
+- Ergebnis: PASS (Evaluator PASS, Reviewer: 1 major behoben)
+- Gemacht: Neues Modul `optimize/greedy.py`: `solve_greedy` (Aufgaben nach Schlupf sortiert, Wert je kWh aus `milp.objective_weights`; modulierend: Wasserfüllung; Programm: bester Start; min-Optionen: ein Lauf mit k Intervallen à E/k, bestes (k, Start)), `GreedyScheduleError`, Toleranzen `ENERGY_NOISE_KWH`/`BOUND_NOISE_KWH`. `milp._inflexible_total` → öffentlich `inflexible_total`. Tests: `tests/unit/test_greedy.py` (Handbeispiele je Ziel/Geräteart, Reihenfolge nach Flexibilität, Werte genau auf floor/cap, Fehler), `tests/property/test_greedy.py` (INV-2 alle Gerätearten × Ziele, Greedy ≤ MILP inkl. min-Optionen), `tests/perf/test_greedy_perf.py` (slow, 15 Haushalte × 48 h: 0,04 s). architecture.md §4/§5 ergänzt (Flexibilität = Schlupf statt Fensterlänge).
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Greedy-≤-MILP mit min-Optionen verwirft Beispiele, bei denen CBC das 20-s-Zeitlimit erreicht (nur diese, sonst Fehler); Laufzeit des Tests 4–11 s, check.sh-Gesamtlaufzeit schwankte (93 s / 186 s). Property-Test importiert Strategien aus `tests/property/test_milp.py` (bei Gelegenheit in ein Strategien-Modul auslagern). Rückgabetyp `dict[...]` statt Alias `DeviceSchedule` (wie `solve_block`).
+- Fehlertypen: solver-precision, spec-abweichung
+- Anmerkung: Reviewer-major: Untergrenze `floor ≤ E/k` ohne Toleranz (0,3/3 < 0,1) → gültiges k verworfen; behoben mit `BOUND_NOISE_KWH` + Tests genau auf floor und cap. Abweichung: Sortierung nach Schlupf statt Fensterlänge (architecture §5 nachgezogen, Begründungstest).
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F5-07).
+
 ## 2026-11-21 – F5-05 – MILP: Ziele Kosten und CO2
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK)
 - Gemacht: `optimize/milp.py`: `objective_weights`/`ObjectiveWeights` (Ziel = Σ shared·w_s − Σ load·w_l + Σ pv·w_pv inkl. Konstante, also exakt `evaluate`), `_force_shared_to_minimum` (bei negativem Wert eines geteilten kWh: shared = min(pv, load) als Konstante bzw. Binärvariable), `SHARED_BINARY_MIN_KWH`. `economics.py`: Koeffizienten öffentlich (`energy_price_ct_per_kwh`, `import_price_ct_per_kwh`, `community_shared_price_ct_per_kwh`, `co2_intensity_g_per_kwh`), von `community_costs`/`costs` genutzt. Tests: `tests/unit/test_milp_objectives.py` (Handbeispiele billigstes/CO₂-ärmstes Intervall, Programm, PV vs. billiger Bezug, negativer Spotpreis, Gewichte, Fehler), `tests/unit/test_zz_repro_f505.py` (Regression winzige Werte), Property-Tests INV-3 für beide Ziele und „Modellwert = evaluate“ für alle Ziele (zufällige, auch negative Spotpreise). `test_unsupported_objective_is_rejected` prüft jetzt einen unbekannten Namen (min_cost ist absichtlich unterstützt). architecture.md §4/§5 ergänzt.

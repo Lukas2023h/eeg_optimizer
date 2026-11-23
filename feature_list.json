@@ -157,7 +157,7 @@
       "Offline-Test mit Fixture-CSV: kumulative Zählerstände werden korrekt in kWh pro Intervall differenziert, Ergebnis besteht validate_frame",
       "Auswahl eines Haushalts per ID; unbekannte ID -> klare Fehlermeldung"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F2-01",

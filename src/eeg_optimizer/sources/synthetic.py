@@ -67,7 +67,7 @@ def _local_hour(index: pd.DatetimeIndex) -> np.ndarray:
 
 def _day_codes(index: pd.DatetimeIndex) -> tuple[np.ndarray, int]:
     """Running day number (0-based, local calendar days) per interval and number of days."""
-    days = np.asarray(index.normalize().tz_localize(None).asi8, dtype=np.int64)
+    days = np.asarray(index.normalize().tz_localize(None).asi8, dtype=np.int64)  # unit-agnostic
     _, codes = np.unique(days, return_inverse=True)
     return codes, int(codes.max()) + 1
 

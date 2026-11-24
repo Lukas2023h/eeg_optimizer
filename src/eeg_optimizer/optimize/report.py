@@ -11,12 +11,19 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final, Literal
 
+from eeg_optimizer.allocation import strategy_for
+from eeg_optimizer.community import CommunityInputs
+from eeg_optimizer.compare import Comparison, compare_schedule
 from eeg_optimizer.config import CommunityConfig, SolverName
-from eeg_optimizer.optimize.objectives import Objective
+from eeg_optimizer.economics import TariffKind
+from eeg_optimizer.optimize.objectives import Objective, OptimizationInputs
 from eeg_optimizer.optimize.runner import Schedule
 
 SESSION_RUN_KEY: Final = "optimization_run"
 """Session-state key of the last :class:`OptimizationRun`."""
+SESSION_COMPARISON_KEY: Final = "comparison_result"
+"""Session-state key of ``(run, comparison)``: the comparison of a run is computed once and
+shared by the pages 'Vergleich' and 'Export'."""
 
 OBJECTIVE_LABELS: Final[Mapping[Objective, str]] = {
     "max_shared": "Gemeinsam genutzte Energie maximieren",
@@ -89,14 +96,35 @@ def score_summary(schedule: Schedule) -> ScoreSummary:
     )
 
 
+def comparison_tariff(objective: Objective) -> TariffKind:
+    """Tariff of the comparison: spot for 'min_cost' (what it optimized), else fixed."""
+    return "spot" if objective == "min_cost" else "fixed"
+
+
+def compare_run(run: OptimizationRun, inputs: CommunityInputs) -> Comparison:
+    """Comparison of ``run`` with the baseline (pages 'Vergleich' and 'Export').
+
+    ``inputs`` must be the time series of ``run.config`` (``community.build_inputs``).
+    """
+    return compare_schedule(
+        OptimizationInputs.from_community(inputs, run.config),
+        run.schedule.devices,
+        strategy_for(run.config.allocation),
+        tariff=comparison_tariff(run.schedule.objective),
+    )
+
+
 __all__ = [
     "BLOCK_NOTE",
     "NOTES",
     "OBJECTIVE_LABELS",
+    "SESSION_COMPARISON_KEY",
     "SESSION_RUN_KEY",
     "SOLVER_LABELS",
     "UPPER_BOUND_NOTE",
     "OptimizationRun",
     "ScoreSummary",
+    "compare_run",
+    "comparison_tariff",
     "score_summary",
 ]

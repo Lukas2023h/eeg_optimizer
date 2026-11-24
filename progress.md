@@ -76,7 +76,18 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - F6-02/F7-03: Die Seite `/optimierung` legt den letzten Lauf als `optimize.report.OptimizationRun` (`config`, `schedule`) in `st.session_state[report.SESSION_RUN_KEY]` ab. Die Vergleichsseite prüft `run.config == aktive Konfiguration` (sonst Hinweis „neu rechnen“) und holt die Zeitreihen wieder über `build_inputs` (gecacht). Hinweistexte `report.UPPER_BOUND_NOTE`/`BLOCK_NOTE`. Ein Jahreslauf MILP (Offline-Beispiel) dauert ca. 15 s. E2E: Auf Text `^Rückfall-Blöcke: \d+ von \d+` warten (Timeout 180 s). (F5-10)
 - F7-03: Vergleichsseite `/vergleich` (`app/pages/comparison.py`) ist über den Link „Zum Vergleich vorher/nachher“ unter dem Optimierungsergebnis erreichbar (In-App-Navigation behält die Session, `page.goto` verliert den Lauf). E2E-Helfer `_open_comparison_after_run` in `tests/e2e/test_comparison_page.py`, Kopfzeile per Regex `kWh gemeinsam genutzt ·`. Zahlen nur über `formatting.german_number`, Uhrzeiten über `formatting.time_labels`. Nach Änderungen an `src/` den Server neu starten (`./init.sh stop`, `./init.sh`), Streamlit lädt Paketmodule nicht neu, sonst ImportError in E2E. (F6-02)
 
+- F7-03: Export-Seite `/export` (`app/pages/export.py`) ist über den Link „Zum CSV-Export“ am Ende der Vergleichsseite erreichbar (oder Navigation „Export“). Vergleich und Export teilen sich den Vergleich über `report.SESSION_COMPARISON_KEY`; die Logik steckt in `report.compare_run`/`comparison_tariff`. Download-Buttons „Zeitreihen herunterladen (CSV)“ und „Kennzahlen herunterladen (CSV)“. E2E-Helfer `_open_export_after_run` in `tests/e2e/test_export_page.py` (Greedy, schneller). `_community_inputs`/`_active_config` sind jetzt in 4 Seiten kopiert, je eigener `st.cache_data` (Zeitreihen ggf. doppelt geladen); ein gemeinsames App-Modul scheiterte bisher an mypy (`explicit_package_bases`, app/ nicht in `mypy_path`). (F7-01)
+
 ---
+
+## 2026-11-24 – F7-01 – CSV-Export
+- Ergebnis: PASS (Evaluator PASS; Reviewer OK für Export, 1 nit behoben; Reviewer für den MILP-Fix: 1 major behoben)
+- Gemacht: Neues Modul `export.py`: `timeseries_frame` (Gemeinschaft je Intervall: pv, load/shared/export/grid_import je `baseline`/`optimized` in kWh, Gemeinschaftskosten €, CO₂ kg; `validate_frame`), `kpi_frame` (= Vergleichstabelle), `timeseries_csv`/`kpi_csv` (ISO 8601 mit Offset, Floats round-trip), `export_csv(c, dir)` → `zeitreihen.csv`/`kennzahlen.csv`, `read_timeseries_csv`/`read_kpi_csv`. `report.compare_run`/`comparison_tariff`/`SESSION_COMPARISON_KEY` (aus der Vergleichsseite herausgezogen). Seite `/export` mit 2 Download-Buttons, Link von der Vergleichsseite. Tests: `tests/unit/test_export.py` (8, inkl. Roundtrip mit schlichtem `pd.read_csv` exakt, DST-Rückstellung), `tests/property/test_export.py`, E2E `tests/e2e/test_export_page.py` (2, Playwright-Download). architecture.md §2/§4/§6.
+- Reparatur (nebenbei, rot während der Session): `test_greedy_is_never_better_than_the_milp[max_shared]` fand ein Beispiel mit MILP 1,03e-6 kWh schlechter als Greedy. Ursache: CBC schreibt ~8 Stellen, alle 24 PV-Intervalle am Cap kamen 4,3e-8 darunter zurück, `_exact_energy` verteilte das Defizit auf die Nicht-PV-Intervalle. Fix: `milp.PRINTED_DIGITS_REL` (1e-7 relativ), Werte an cap/floor werden vor der Reparatur exakt auf die Schranke gesetzt. Regressionstests in `tests/unit/test_milp.py` (vorher rot) plus Grenzwerttests genau auf/jenseits der Toleranz für cap und floor. slow 49–57 s (INV-5 weiter grün, Puffer kleiner geworden bzw. Lastrauschen).
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Export nur Gemeinschafts-Zeitreihen, keine Lastgänge je Haushalt. `test_export.py` importiert `_inputs`/`_shifted` aus anderen Testmodulen (gemeinsames Helper-Modul wäre sauberer). `report.py` trägt jetzt Rechenlogik (compare_run). `_scenario_columns`/`TIMESERIES_COLUMNS` bauen Namen aus denselben Templates zweimal. `pandas.read_csv(float_precision=…)` ist in pandas 3 veraltet, Roundtrip exakt per Standard. Ein Überschuss nach dem Einrasten wird weiterhin proportional auch von Cap-Intervallen abgezogen (Verlust ≤ Überschuss, ~1e-8).
+- Fehlertypen: solver-precision
+- Nächster Schritt: `scripts/next_feature.sh` (voraussichtlich F7-02).
 
 ## 2026-11-23 – F6-02 – UI: Vergleichsseite
 - Ergebnis: PASS (Evaluator PASS, Reviewer OK, 2 minor behoben)
@@ -112,12 +123,4 @@ Wird von `scripts/rotate_progress.py` nie archiviert. Nur Punkte, die spätere F
 - Neue Abhängigkeiten: –
 - Offene Probleme (minor/nit): `_number` ohne Unit-Test und doppelt (siehe Offene Punkte). Bei `improvement < 0` (nur Solver-Rauschen) stünde „-x besser“. E2E-Laufzeit der neuen Tests ca. 110 s.
 - Fehlertypen: –
-- Nächster Schritt: `scripts/next_feature.sh`.
-
-## 2026-11-21 – F5-09 – Standardszenario ohne Rückfall
-- Ergebnis: PASS (Evaluator PASS, Reviewer OK, 2 nits behoben)
-- Gemacht: `tests/unit/test_standard_scenario.py`: Offline-Beispielgemeinschaft 2023 mit MILP für max_shared/min_cost/min_co2 (`fallback_ratio == 0`, 365 Blöcke, Ergebnis ≥ Baseline), Network-Test Online-Beispiel max_shared (bestanden, ~20 s). Der Test fand 7 min_cost-Rückfälle (E-Auto verfehlte 5,25 kWh): CBC-2.10.3-Bug in der MIP-Vorverarbeitung (Wert 8 kWh bei Cap 2,75, Status Optimal). Fix in `optimize/milp.py`: `run_cbc`, `bound_violations` (`BOUND_TOLERANCE_KWH` 1e-6), bei Verstoß zweiter Lauf mit `preprocess off`, danach noch Verstoß → `BlockSolveError`. Tests `tests/unit/test_milp_bounds.py` (Werte genau auf Grenze/Toleranz, Neulösen, Fehler, Regression Jan 2023 echt). architecture.md §4 ergänzt. INV-5 unverändert 47,8 s. check.sh 77 s → 128 s.
-- Neue Abhängigkeiten: –
-- Offene Probleme (minor/nit): Zweiter CBC-Lauf bekommt erneut das volle Zeitlimit (Docstring). `bound_violations` prüft nur modulierende Variablen (Programme über `_chosen_start`). `run_cbc`/`bound_violations` öffentlich v. a. für Tests.
-- Fehlertypen: solver-bug
 - Nächster Schritt: `scripts/next_feature.sh`.

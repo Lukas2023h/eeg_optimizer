@@ -38,7 +38,8 @@ eeg_optimizer/
 │   ├── optimize/
 │   │   ├── objectives.py  milp.py  greedy.py  runner.py  # runner: Tageszerlegung, Fallback
 │   ├── economics.py               # €, CO₂
-│   └── compare.py                 # Baseline vs. optimiert
+│   ├── compare.py                 # Baseline vs. optimiert
+│   └── export.py                  # CSV-Export (Zeitreihen, Kennzahlen)
 ├── app/
 │   ├── streamlit_app.py           # Einstieg, Navigation
 │   └── pages/                     # Konfiguration, Ist-Analyse, Optimierung, Vergleich, Export
@@ -207,7 +208,10 @@ def solve_block(inputs: OptimizationInputs, objective: Objective, time_limit_s: 
 # on_t ≥ Σ der Starts der letzten m Intervalle, keine Starts in den letzten m−1 Intervallen des
 # Fensters; m > Fenster (Frühjahrs-DST) → BlockSolveError beim Aufbau. Nicht aufteilbare Energie
 # (z. B. 1 kWh bei ≥ 4,1 kW) → CBC „Infeasible“ → BlockSolveError. Die Reparatur der CBC-Rundung
-# bleibt bei on = 1 in [floor, cap] und setzt on = 0 exakt auf 0.
+# bleibt bei on = 1 in [floor, cap] und setzt on = 0 exakt auf 0. Vor der Energiereparatur werden Werte
+# bis PRINTED_DIGITS_REL (1e-7 relativ) an cap bzw. floor exakt auf die Schranke gesetzt (CBC schreibt
+# ~8 Stellen: 1,151292043 → 1,151292); sonst behält jedes Intervall am Cap sein Defizit (Regression
+# test_milp.py::test_device_at_full_power_in_every_pv_interval_shares_the_exact_optimum).
 # Ziele (F5-05): objective_weights(inputs, objective) -> ObjectiveWeights(shared_weight, load_weight,
 # pv_weight) je Intervall; LP-Ziel = Σ shared·w_s − Σ load·w_l + Σ pv·w_pv (Konstante inklusive), also
 # genau evaluate(). Koeffizienten aus economics (import_price_ct_per_kwh, community_shared_price_ct_per_kwh,
@@ -284,6 +288,17 @@ def compare(baseline: Scenario, optimized: Scenario) -> Comparison
 # additional_shared_kwh (Index day), best_day(c) -> Tag mit größtem Gewinn (Gleichstand: frühester),
 # day_profile(c, day) -> DataFrame je 15-min-Intervall des Tages (92/96/100 Zeilen), Spalten
 # DAY_PROFILE_COLUMNS = pv_kw, load_baseline_kw, load_optimized_kw (Gemeinschaft); fremder Tag -> ComparisonInputError.
+# optimize/report.py (F7-01): comparison_tariff(objective) -> "spot" bei min_cost, sonst "fixed";
+# compare_run(run: OptimizationRun, inputs: CommunityInputs) -> Comparison (gemeinsam für Vergleich und Export).
+
+# export.py (F7-01): timeseries_frame(c) -> DataFrame (validate_frame) mit TIMESERIES_COLUMNS = pv_kwh,
+# {load,shared,export,grid_import}_{baseline,optimized}_kwh, community_cost_{baseline,optimized}_eur (Tarif
+# des Vergleichs), emissions_{baseline,optimized}_kg_co2 (Gemeinschaft je Intervall). kpi_frame(c) = c.table
+# (Index household_id). timeseries_csv/kpi_csv -> CSV-Text (Komma, Dezimalpunkt, Floats in kürzester
+# Round-trip-Form, Spalte "timestamp" = Intervallbeginn als ISO 8601 mit Offset, z. B. 2023-10-29T02:00:00+01:00).
+# export_csv(c, directory) -> ExportFiles(timeseries=zeitreihen.csv, kpis=kennzahlen.csv).
+# read_timeseries_csv(path) (Index Europe/Vienna, validate_frame) / read_kpi_csv(path); ein schlichtes
+# pandas.read_csv liest die Werte exakt zurück (pandas 3, Roundtrip-Test).
 
 # formatting.py (F6-02): german_number(value, decimals=0, signed=False) -> "12.345,6" bzw. "+1.234";
 # auf 0 gerundete Werte ohne Vorzeichen. Einzige Zahlenformatierung der UI-Seiten.
@@ -321,7 +336,9 @@ Die Quellen holen über HTTP nur, wenn der Cache fehlt (`data/cache/<source>/<ke
 
 Seiten: **Konfiguration** (YAML laden/bearbeiten/speichern), **Ist-Analyse** (KPIs, Tages-/Monatsprofil, Heatmap), **Optimierung** (Ziel und Solver wählen, Start, Laufzeit), **Vergleich** (pro Haushalt und gesamt), **Export** (CSV). Hinweisbox auf jeder Ergebnisseite: „Obergrenze bei perfekter Voraussicht. Annahmen siehe …“. Neben dem Optimierungsergebnis stehen außerdem „pro Tagesblock optimal, nicht global“ und die Anzahl der Rückfall-Blöcke. Für Playwright erhalten wichtige Elemente stabile Labels bzw. `key`s. Berechnungen werden per `st.cache_data` gecacht.
 
-**Vergleich (F6-02):** Seite `app/pages/comparison.py`, URL `/vergleich`, erreichbar auch über den Link „Zum Vergleich vorher/nachher“ unter dem Optimierungsergebnis. Sie zeigt den letzten Lauf aus `st.session_state[report.SESSION_RUN_KEY]`. Fehlt er oder gehört er zu einer anderen Konfiguration, erscheint ein Hinweis mit Link zur Optimierung. `compare.compare_schedule` wird einmal je Lauf gerechnet (Session-Key `comparison_result` = (Lauf, Vergleich)). Der Tarif ist `spot` beim Ziel `min_cost`, sonst `fixed`. Inhalt: Kopfzeile „+X kWh gemeinsam genutzt · Y € gespart · Z kg CO₂ vermieden“ (Gemeinschaftssicht), drei Kennzahlen, Hinweisbox `comparison_notes` (Obergrenze, Tagesblock, Annahmen), Tabelle `comparison_table` (`st.table`, eine Zeile je Haushalt plus „Summe“, € in Haushaltssicht) und Tagesdiagramm `comparison_day_chart` (PV, Verbrauch vorher/nachher) für den Tag aus der Auswahl „Tag“ (Selectbox mit Suche, vorgewählt `best_day`; das neue `st.date_input` hat kein normales Eingabefeld für Playwright).
+**Vergleich (F6-02):** Seite `app/pages/comparison.py`, URL `/vergleich`, erreichbar auch über den Link „Zum Vergleich vorher/nachher“ unter dem Optimierungsergebnis. Sie zeigt den letzten Lauf aus `st.session_state[report.SESSION_RUN_KEY]`. Fehlt er oder gehört er zu einer anderen Konfiguration, erscheint ein Hinweis mit Link zur Optimierung. `report.compare_run` wird einmal je Lauf gerechnet (Session-Key `report.SESSION_COMPARISON_KEY` = `comparison_result` = (Lauf, Vergleich), geteilt mit der Export-Seite). Der Tarif ist `spot` beim Ziel `min_cost`, sonst `fixed`. Inhalt: Kopfzeile „+X kWh gemeinsam genutzt · Y € gespart · Z kg CO₂ vermieden“ (Gemeinschaftssicht), drei Kennzahlen, Hinweisbox `comparison_notes` (Obergrenze, Tagesblock, Annahmen), Tabelle `comparison_table` (`st.table`, eine Zeile je Haushalt plus „Summe“, € in Haushaltssicht) und Tagesdiagramm `comparison_day_chart` (PV, Verbrauch vorher/nachher) für den Tag aus der Auswahl „Tag“ (Selectbox mit Suche, vorgewählt `best_day`; das neue `st.date_input` hat kein normales Eingabefeld für Playwright). Am Ende steht der Link „Zum CSV-Export“.
+
+**Export (F7-01):** Seite `app/pages/export.py`, URL `/export`. Gleiche Lauf-Prüfung wie der Vergleich (Hinweis mit Link „Zur Optimierung“), gleicher Vergleich aus `SESSION_COMPARISON_KEY`. Die CSV-Texte werden einmal je Vergleich gebaut (Session-Key `export_csv`). Zwei Download-Buttons „Zeitreihen herunterladen (CSV)“ (`zeitreihen.csv`, Key `export_timeseries`) und „Kennzahlen herunterladen (CSV)“ (`kennzahlen.csv`, Key `export_kpis`). Exportiert werden nur Gemeinschafts-Zeitreihen, keine Lastgänge je Haushalt (Zeitreihen-Datei schon mehrere MB je Jahr).
 
 **Aktive Konfiguration (F2-04):** Die Seite Konfiguration (`app/pages/configuration.py`, URL `/konfiguration`) legt die gewählte bzw. übernommene Konfiguration als `CommunityConfig` in `st.session_state["community_config"]` ab (Konstante `config_store.SESSION_CONFIG_KEY`), die Herkunftsdatei in `SESSION_PATH_KEY`. Fehlt der Eintrag, laden andere Seiten `config_store.DEFAULT_CONFIG_PATH`. Die Logik ohne Streamlit liegt in `config_store.py`: `available_configs` (Beispiele aus `config/` ohne `defaults.yaml` plus `data/configs/*.yaml`), `apply_edits(cfg, teil_mapping)` (Validierung nur über `parse_config`), `resize_households` und `save_user_config` (nach `data/configs/<name>.yaml`, Name nur `[A-Za-z0-9_-]`). Ungültige Eingaben zeigen die `ConfigError`-Meldung und lassen die zuletzt gültige Konfiguration aktiv.
 

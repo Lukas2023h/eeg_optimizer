@@ -10,6 +10,7 @@ import pytest
 from eeg_optimizer.config import TariffConfig
 from eeg_optimizer.devices import Device, ModulatingDevice, ProgramDevice, TimeWindow
 from eeg_optimizer.optimize.milp import (
+    PRINTED_DIGITS_REL,
     BlockSolveError,
     TaskSpan,
     UnsupportedModelError,
@@ -139,6 +140,83 @@ def test_solver_rounding_is_repaired_to_the_exact_task_energy(
     assert values.max() <= 0.5
     assert values[0] == 0.0
     assert values[5] == 0.0
+
+
+CAP_8_DIGITS_KWH = 4.60516817215779 / 4  # 1.151292043...; CBC prints it as 1.151292
+
+
+def test_values_rounded_below_the_cap_are_put_back_on_the_cap() -> None:
+    # CBC writes ~8 significant digits: an interval at the cap comes back 4.3e-8 kWh below it.
+    # The missing energy belongs to those intervals, not spread over the others (else every
+    # PV interval keeps its deficit and max_shared loses ~1e-6 kWh, F5-06 property test).
+    printed = float(f"{CAP_8_DIGITS_KWH:.8g}")
+    assert printed < CAP_8_DIGITS_KWH - 4e-8
+    values = np.asarray([printed, printed, printed, 0.3])
+
+    _exact_energy(values, TaskSpan(0, 4, 3 * CAP_8_DIGITS_KWH + 0.3), CAP_8_DIGITS_KWH, "test")
+
+    assert values[:3].tolist() == [CAP_8_DIGITS_KWH] * 3
+    assert values[3] == pytest.approx(0.3, abs=1e-15)
+
+
+@pytest.mark.parametrize(
+    ("relative", "snaps"),
+    [(PRINTED_DIGITS_REL, True), (0.5 * PRINTED_DIGITS_REL, True), (2 * PRINTED_DIGITS_REL, False)],
+)
+def test_snap_to_the_cap_exactly_at_and_beyond_the_tolerance(relative: float, snaps: bool) -> None:
+    cap = CAP_8_DIGITS_KWH
+    below = cap * (1.0 - relative)
+    # the free third interval takes the rest; it is far from both bounds
+    values = np.asarray([below, below, 0.3])
+
+    _exact_energy(values, TaskSpan(0, 3, 2 * cap + 0.3), cap, "test")
+
+    assert (values[:2].tolist() == [cap, cap]) is snaps
+    assert values.sum() == pytest.approx(2 * cap + 0.3, abs=1e-12)
+    assert values.max() <= cap
+
+
+@pytest.mark.parametrize(
+    ("relative", "snaps"),
+    [(PRINTED_DIGITS_REL, True), (0.5 * PRINTED_DIGITS_REL, True), (2 * PRINTED_DIGITS_REL, False)],
+)
+def test_snap_to_the_floor_exactly_at_and_beyond_the_tolerance(
+    relative: float, snaps: bool
+) -> None:
+    # min options: running intervals live in [floor, cap], the stopped one stays exactly 0
+    cap, floor = 1.0, 0.2512345678
+    above = floor * (1.0 + relative)
+    values = np.asarray([above, above, 0.6, 0.0])
+    running = np.asarray([True, True, True, False])
+    span = TaskSpan(0, 4, 2 * floor + 0.6, floor_kwh=floor)
+
+    _exact_energy(values, span, cap, "test", running)
+
+    assert (values[:2].tolist() == [floor, floor]) is snaps
+    assert values.sum() == pytest.approx(2 * floor + 0.6, abs=1e-12)
+    assert values[:3].min() >= floor
+    assert values[3] == 0.0
+
+
+def test_device_at_full_power_in_every_pv_interval_shares_the_exact_optimum() -> None:
+    # Regression (F5-06 property test, 2026-11-24): power 4.605... kW whose cap has more than
+    # 8 significant digits; 24 PV intervals, the device needs 30 intervals at full power.
+    pv = np.zeros(96)
+    pv[32:56] = 2.0
+    device = ModulatingDevice(
+        id="ev",
+        power_kw=KW(4.60516817215779),
+        energy_kwh_per_day=KWh(30 * CAP_8_DIGITS_KWH),
+        window=TimeWindow(time(0, 0), time(23, 45)),
+        baseline_start=time(0, 0),
+    )
+    inputs = _inputs(pv, (device,))
+
+    schedule = solve_block(inputs, "max_shared")
+
+    # every PV interval: inflexible 0.1 + device at the cap, both below the PV of 2 kWh
+    optimum = 24 * (0.1 + CAP_8_DIGITS_KWH)
+    assert evaluate(schedule, inputs, "max_shared") == pytest.approx(optimum, abs=1e-9)
 
 
 def test_large_energy_deviation_is_an_error_not_repaired() -> None:

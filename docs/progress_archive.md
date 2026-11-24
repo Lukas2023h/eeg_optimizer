@@ -4,6 +4,14 @@
 
 ---
 
+## 2026-11-21 – F5-09 – Standardszenario ohne Rückfall
+- Ergebnis: PASS (Evaluator PASS, Reviewer OK, 2 nits behoben)
+- Gemacht: `tests/unit/test_standard_scenario.py`: Offline-Beispielgemeinschaft 2023 mit MILP für max_shared/min_cost/min_co2 (`fallback_ratio == 0`, 365 Blöcke, Ergebnis ≥ Baseline), Network-Test Online-Beispiel max_shared (bestanden, ~20 s). Der Test fand 7 min_cost-Rückfälle (E-Auto verfehlte 5,25 kWh): CBC-2.10.3-Bug in der MIP-Vorverarbeitung (Wert 8 kWh bei Cap 2,75, Status Optimal). Fix in `optimize/milp.py`: `run_cbc`, `bound_violations` (`BOUND_TOLERANCE_KWH` 1e-6), bei Verstoß zweiter Lauf mit `preprocess off`, danach noch Verstoß → `BlockSolveError`. Tests `tests/unit/test_milp_bounds.py` (Werte genau auf Grenze/Toleranz, Neulösen, Fehler, Regression Jan 2023 echt). architecture.md §4 ergänzt. INV-5 unverändert 47,8 s. check.sh 77 s → 128 s.
+- Neue Abhängigkeiten: –
+- Offene Probleme (minor/nit): Zweiter CBC-Lauf bekommt erneut das volle Zeitlimit (Docstring). `bound_violations` prüft nur modulierende Variablen (Programme über `_chosen_start`). `run_cbc`/`bound_violations` öffentlich v. a. für Tests.
+- Fehlertypen: solver-bug
+- Nächster Schritt: `scripts/next_feature.sh`.
+
 ## 2026-11-21 – F5-08 – Performance: 15 Haushalte × 1 Jahr < 60 s
 - Ergebnis: PASS (Evaluator PASS nach 1 FAIL: Laufzeit fehlte noch in progress.md; Reviewer OK, Nit „Schrittweite 0 bei Intervall feiner als Index-Einheit“ behoben)
 - Gemacht: `tests/perf/test_performance.py` (slow): synthetisches Jahr 2023, 15 Haushalte mit je 3–5 Beispielgeräten (60 insgesamt), max_shared, MILP, Wandzeit um `optimize` gemessen, Assert `< 60 s`, `fallback_ratio == 0`, Ergebnis ≥ Baseline. **Gemessen: 47,8 s / 47,9 s** (zwei Läufe, 365 Blöcke, fallback_ratio 0, shared 45 705 → 58 922 kWh). Vorher 80,3 s. Beschleunigung: `units._is_aligned_gapless_grid` (int64-Schnellpfad in `_validate_index`, Schrittweite in der Einheit des Index; nur ungültige Indizes laufen über die alten Prüfungen mit Meldung) und `lru_cache` auf `devices._local_instant`. Tests: `tests/unit/test_units.py` (Schnellpfad für s/ms/us/ns, Lücke/Versatz/umgekehrt je Einheit, Intervall). check.sh 105 s → 77 s.

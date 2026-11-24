@@ -590,7 +590,7 @@
       "export_csv erzeugt Dateien mit Einheiten im Spaltennamen und ISO-Zeitstempeln inkl. Offset; pandas.read_csv liest sie zurück, Werte identisch (Roundtrip-Test)",
       "E2E: Download-Button auf Seite 'Export' liefert eine CSV-Datei (Playwright download)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F7-02",

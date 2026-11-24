@@ -16,7 +16,6 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from eeg_optimizer import compare
-from eeg_optimizer.allocation import strategy_for
 from eeg_optimizer.analysis import ASSUMPTION_NOTES
 from eeg_optimizer.community import CommunityInputs, build_inputs
 from eeg_optimizer.config import (
@@ -29,19 +28,19 @@ from eeg_optimizer.config import (
 from eeg_optimizer.config_store import DEFAULT_CONFIG_PATH, SESSION_CONFIG_KEY, SESSION_PATH_KEY
 from eeg_optimizer.economics import TariffKind
 from eeg_optimizer.formatting import german_number, time_labels
-from eeg_optimizer.optimize.objectives import OptimizationInputs
 from eeg_optimizer.optimize.report import (
     BLOCK_NOTE,
     OBJECTIVE_LABELS,
+    SESSION_COMPARISON_KEY,
     SESSION_RUN_KEY,
     SOLVER_LABELS,
     UPPER_BOUND_NOTE,
     OptimizationRun,
+    compare_run,
+    comparison_tariff,
 )
 from eeg_optimizer.sources.cache import CacheError
 
-SESSION_COMPARISON_KEY = "comparison_result"
-"""Session-state key of ``(run, comparison)``: the comparison is computed once per run."""
 DAY_KEY = "comparison_day"
 """Widget key of the day selection; reset when a new run is compared."""
 TOTAL_LABEL = "Summe"
@@ -84,8 +83,7 @@ def _active_config() -> CommunityConfig:
 
 
 def _tariff(run: OptimizationRun) -> TariffKind:
-    """Spot tariff for the objective 'min_cost' (what it optimized), else the fixed tariff."""
-    return "spot" if run.schedule.objective == "min_cost" else "fixed"
+    return comparison_tariff(run.schedule.objective)
 
 
 def _comparison(run: OptimizationRun) -> compare.Comparison:
@@ -95,12 +93,7 @@ def _comparison(run: OptimizationRun) -> compare.Comparison:
         return result
     inputs = _community_inputs(json.dumps(config_to_dict(run.config), sort_keys=True))
     with st.spinner("Vergleich wird berechnet …"):
-        result = compare.compare_schedule(
-            OptimizationInputs.from_community(inputs, run.config),
-            run.schedule.devices,
-            strategy_for(run.config.allocation),
-            tariff=_tariff(run),
-        )
+        result = compare_run(run, inputs)
     st.session_state[SESSION_COMPARISON_KEY] = (run, result)
     # a new run preselects its own best day instead of keeping the old selection
     st.session_state.pop(DAY_KEY, None)
@@ -261,3 +254,5 @@ with st.container(key="comparison_table"):
 
 st.subheader("Ein Tag vorher und nachher")
 _day_section(comparison)
+
+st.page_link("pages/export.py", label="Zum CSV-Export")

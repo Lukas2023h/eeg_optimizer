@@ -106,6 +106,9 @@ ENERGY_REPAIR_LIMIT_KWH: Final = 1e-4
 """Largest task-energy deviation of a solver result that counts as rounding noise."""
 BINARY_TOLERANCE: Final = 1e-6
 """Largest distance of a solved binary from 0 or 1 that counts as rounding noise."""
+PRINTED_DIGITS_REL: Final = 1e-7
+"""Relative distance from a bound (cap, floor) within which a solved value counts as sitting
+on it: CBC writes its solution with ~8 significant digits (1.151292043 -> 1.151292)."""
 SUMMATION_NOISE_KWH: Final = 1e-9
 """Energy deviation that only stems from float summation order (all values at a bound)."""
 SHARED_BINARY_MIN_KWH: Final = 1e-6
@@ -510,9 +513,10 @@ def _exact_energy(
     options) ``[span.floor_kwh, cap]`` where running and exactly 0 elsewhere.
 
     CBC reports values with about 8 significant digits, so a task may miss its energy by
-    ~1e-6 kWh. A missing amount goes into the headroom below the upper bound
-    (proportionally), a surplus is removed proportionally to the room above the lower bound.
-    Anything beyond solver noise raises.
+    ~1e-6 kWh. Values within :data:`PRINTED_DIGITS_REL` of a bound (``cap``, ``floor``) are
+    first put exactly on it. Then a missing amount goes into the headroom below the upper
+    bound (proportionally), a surplus is removed proportionally to the room above the lower
+    bound. Anything beyond solver noise raises.
     """
     if running is None:
         lower = np.zeros(span.stop - span.start)
@@ -521,6 +525,13 @@ def _exact_energy(
         lower = np.where(running, span.floor_kwh, 0.0)
         upper = np.where(running, cap, 0.0)
     part = np.clip(values[span.start : span.stop], lower, upper)
+    # A value at a bound comes back up to half a unit of the 8th digit off it; put it back
+    # first, else the missing energy is spread over the free intervals and every interval
+    # at the cap (e.g. all PV intervals) keeps its deficit. Written as products, not as
+    # distances, so a value exactly at the tolerance snaps. A lower bound of 0 has no
+    # tolerance: only exact zeros match, which the clip above already produced.
+    part = np.where(part >= upper * (1.0 - PRINTED_DIGITS_REL), upper, part)
+    part = np.where(part <= lower * (1.0 + PRINTED_DIGITS_REL), lower, part)
     diff = span.energy_kwh - float(part.sum())
     if abs(diff) > ENERGY_REPAIR_LIMIT_KWH:
         raise BlockSolveError(
@@ -680,6 +691,7 @@ __all__ = [
     "BINARY_TOLERANCE",
     "BOUND_TOLERANCE_KWH",
     "ENERGY_REPAIR_LIMIT_KWH",
+    "PRINTED_DIGITS_REL",
     "RUN_FLOOR_SHARE",
     "SUMMATION_NOISE_KWH",
     "SUPPORTED_OBJECTIVES",
